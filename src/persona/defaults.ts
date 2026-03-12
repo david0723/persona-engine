@@ -39,6 +39,12 @@ instructions: |
 container:
   enabled: true
 
+# Telegram bot (each persona gets their own bot via @BotFather)
+# telegram:
+#   enabled: true
+#   bot_token: "123456:ABC-DEF..."
+#   allowed_chat_ids: [your_chat_id]  # optional, restricts who can talk
+
 heartbeat:
   enabled: true
   interval_minutes: 120

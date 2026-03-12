@@ -12,12 +12,6 @@ interface ServeOptions {
 }
 
 export async function servePersona(name: string, options: ServeOptions): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
-  if (!token) {
-    console.error(chalk.red("TELEGRAM_BOT_TOKEN not set in ~/.persona-engine/.env"))
-    process.exit(1)
-  }
-
   const port = parseInt(options.port ?? "3100", 10)
 
   let persona
@@ -25,6 +19,13 @@ export async function servePersona(name: string, options: ServeOptions): Promise
     persona = loadPersona(name)
   } catch (err) {
     console.error(chalk.red((err as Error).message))
+    process.exit(1)
+  }
+
+  const token = persona.telegram?.bot_token
+  if (!token) {
+    console.error(chalk.red(`No Telegram bot token configured for "${name}".`))
+    console.error(chalk.dim(`Add it to persona.yaml:\n\n  telegram:\n    enabled: true\n    bot_token: "your-bot-token"\n`))
     process.exit(1)
   }
 

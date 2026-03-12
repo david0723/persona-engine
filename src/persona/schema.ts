@@ -31,6 +31,7 @@ export interface ContainerConfig {
 
 export interface TelegramConfig {
   enabled: boolean
+  bot_token: string
   allowed_chat_ids?: number[]
 }
 
