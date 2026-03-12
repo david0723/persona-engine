@@ -29,6 +29,11 @@ export interface ContainerConfig {
   image?: string // defaults to "persona-engine:latest"
 }
 
+export interface TelegramConfig {
+  enabled: boolean
+  allowed_chat_ids?: number[]
+}
+
 export interface PersonaDefinition {
   name: string
   identity: PersonaIdentity
@@ -36,5 +41,6 @@ export interface PersonaDefinition {
   instructions: string
   mcp_servers?: Record<string, McpServer>
   container?: ContainerConfig
+  telegram?: TelegramConfig
   heartbeat: HeartbeatConfig
 }

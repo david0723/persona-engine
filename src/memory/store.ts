@@ -31,7 +31,7 @@ export class MemoryStore {
     `)
   }
 
-  addTurn(sessionId: string, role: string, content: string): void {
+  addTurn(sessionId: string, role: string, content: string, source: string = "cli"): void {
     const fullContent = `[${role}]: ${content}`
     this.db.prepare(`
       INSERT INTO memories (id, kind, content, session_id, importance, token_estimate)

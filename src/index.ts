@@ -14,6 +14,7 @@ import { chatWithPersona } from "./commands/chat.js"
 import { heartbeatCommand } from "./commands/heartbeat.js"
 import { inspectMemory } from "./commands/memory.js"
 import { installHeartbeat } from "./commands/install-heartbeat.js"
+import { servePersona } from "./commands/serve.js"
 
 const program = new Command()
   .name("persona")
@@ -52,5 +53,12 @@ program
   .description("Install launchd schedule for heartbeat")
   .option("-u, --uninstall", "Remove the heartbeat schedule")
   .action(installHeartbeat)
+
+program
+  .command("serve <name>")
+  .description("Start persona with CLI + Telegram (requires TELEGRAM_BOT_TOKEN)")
+  .option("-p, --port <port>", "Webhook server port", "3100")
+  .option("--no-cli", "Telegram only, no CLI input")
+  .action(servePersona)
 
 program.parse()
