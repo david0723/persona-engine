@@ -7,9 +7,9 @@ import type { Memory, MemoryKind } from "./types.js"
 export class MemoryStore {
   private db: Database.Database
 
-  constructor(personaName: string) {
-    ensurePersonaDir(personaName)
-    this.db = new Database(paths.memoryDb(personaName))
+  constructor(personaName: string, dbPath?: string) {
+    if (!dbPath) ensurePersonaDir(personaName)
+    this.db = new Database(dbPath ?? paths.memoryDb(personaName))
     this.db.pragma("journal_mode = WAL")
     this.init()
   }

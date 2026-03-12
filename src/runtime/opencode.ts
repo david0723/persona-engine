@@ -54,12 +54,16 @@ export function openCodeRun(options: OpenCodeRunOptions): string {
   })
 }
 
-export function openCodeRunStreaming(options: OpenCodeRunOptions, onFirstChunk?: () => void): Promise<string> {
+export function openCodeRunStreaming(
+  options: OpenCodeRunOptions,
+  onFirstChunk?: () => void,
+  onChunk?: (text: string) => void,
+): Promise<string> {
   if (useContainer(options.persona)) {
     ensureContainer(options.persona)
     const bin = OPENCODE_BIN_CONTAINER
     const args = buildArgs({ ...options, dir: "/home/persona/data" })
-    return execInContainerStreaming(options.persona, [bin, ...args])
+    return execInContainerStreaming(options.persona, [bin, ...args], onFirstChunk, onChunk)
   }
 
   return new Promise((resolve, reject) => {
@@ -80,10 +84,16 @@ export function openCodeRunStreaming(options: OpenCodeRunOptions, onFirstChunk?:
         onFirstChunk?.()
       }
       output += text
-      process.stdout.write(text)
+      if (onChunk) {
+        onChunk(text)
+      } else {
+        process.stdout.write(text)
+      }
     })
 
     child.stderr.on("data", (data: Buffer) => {
+      // When onChunk is set, Ink controls the terminal - suppress stderr
+      if (onChunk) return
       const text = data.toString()
       if (!text.includes("MetadataLookup") && !text.includes("warn")) {
         process.stderr.write(data)

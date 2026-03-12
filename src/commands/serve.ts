@@ -5,6 +5,7 @@ import { runCliAdapter } from "../runtime/conversation.js"
 import { setWebhook, deleteWebhook } from "../telegram/bot.js"
 import { startWebhookServer } from "../telegram/webhook.js"
 import { startTunnel, stopTunnel } from "../telegram/tunnel.js"
+import { IpcServer } from "../runtime/ipc-server.js"
 
 interface ServeOptions {
   port?: string
@@ -30,6 +31,11 @@ export async function servePersona(name: string, options: ServeOptions): Promise
   }
 
   const engine = new ConversationEngine(persona)
+
+  // Start IPC server for attach clients
+  const ipcServer = new IpcServer(engine, name)
+  ipcServer.start()
+  console.log(chalk.dim("IPC server started (use `persona attach` to connect)"))
 
   // Start webhook server
   const allowedChatIds = persona.telegram?.allowed_chat_ids
@@ -73,6 +79,7 @@ export async function servePersona(name: string, options: ServeOptions): Promise
   const cleanup = async () => {
     console.log(chalk.dim("\nShutting down..."))
     try { await deleteWebhook(token) } catch { /* ignore */ }
+    ipcServer.stop()
     stopTunnel()
     server.close()
     await engine.shutdown()

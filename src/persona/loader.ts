@@ -16,7 +16,7 @@ export function loadPersona(name: string): PersonaDefinition {
   return validatePersona(parsed)
 }
 
-function validatePersona(data: Record<string, unknown>): PersonaDefinition {
+export function validatePersona(data: Record<string, unknown>): PersonaDefinition {
   const errors: string[] = []
 
   if (typeof data.name !== "string") errors.push("name must be a string")
@@ -62,6 +62,21 @@ function validatePersona(data: Record<string, unknown>): PersonaDefinition {
         if (perms[key] != null && !validPermValues.includes(perms[key] as string))
           errors.push(`permissions.${key} must be "allow", "ask", or "deny"`)
       }
+    }
+  }
+
+  // Validate optional self_update config
+  if (data.self_update != null) {
+    const su = data.self_update as Record<string, unknown>
+    if (typeof su !== "object") {
+      errors.push("self_update must be an object")
+    } else {
+      if (typeof su.enabled !== "boolean")
+        errors.push("self_update.enabled must be a boolean")
+      if (su.repo_url != null && typeof su.repo_url !== "string")
+        errors.push("self_update.repo_url must be a string")
+      if (su.branch != null && typeof su.branch !== "string")
+        errors.push("self_update.branch must be a string")
     }
   }
 

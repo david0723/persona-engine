@@ -11,6 +11,7 @@ import type { PersonaDefinition } from "../persona/schema.js"
 export type MessageSource =
   | { type: "cli" }
   | { type: "telegram"; chatId: number }
+  | { type: "attach" }
 
 interface QueuedMessage {
   text: string
@@ -46,6 +47,20 @@ export class ConversationEngine extends EventEmitter {
     })
   }
 
+  getRecentTurns(limit: number = 30): { role: string; text: string; source: string; created_at: string }[] {
+    const turns = this.store.getRecentTurns(this.sessionId, limit)
+    return turns.map((t) => {
+      // Content format is "[role]: text"
+      const match = t.content.match(/^\[(user|assistant)\]: (.*)$/s)
+      return {
+        role: match?.[1] ?? "user",
+        text: match?.[2] ?? t.content,
+        source: t.session_id ? "cli" : "unknown",
+        created_at: t.created_at,
+      }
+    })
+  }
+
   async shutdown(): Promise<void> {
     const turns = this.store.getTurnsBySession(this.sessionId)
     if (turns.length >= 2) {
@@ -73,7 +88,9 @@ export class ConversationEngine extends EventEmitter {
 
   private async processMessage(text: string, source: MessageSource): Promise<string> {
     // Tag message with source
-    const sourceTag = source.type === "telegram" ? "[sent from phone] " : ""
+    const sourceTag =
+      source.type === "telegram" ? "[sent from phone] " :
+      source.type === "attach" ? "[sent from attached terminal] " : ""
     const taggedText = `${sourceTag}${text}`
 
     this.store.addTurn(this.sessionId, "user", taggedText, source.type)
@@ -98,13 +115,15 @@ export class ConversationEngine extends EventEmitter {
       title: `persona-${this.persona.name}`,
     }
 
-    // Use streaming for CLI, non-streaming for Telegram
+    // Use streaming for CLI and attach, non-streaming for Telegram
     this.emit("thinking", { source })
     let output: string
-    if (source.type === "cli") {
-      output = await openCodeRunStreaming(runOptions, () => {
-        this.emit("responding", { source })
-      })
+    if (source.type === "cli" || source.type === "attach") {
+      output = await openCodeRunStreaming(
+        runOptions,
+        () => this.emit("responding", { source }),
+        (chunk) => this.emit("chunk", chunk),
+      )
     } else {
       output = openCodeRun(runOptions)
     }

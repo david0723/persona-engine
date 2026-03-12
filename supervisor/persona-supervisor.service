@@ -1,0 +1,25 @@
+[Unit]
+Description=Persona Engine Supervisor - watches for restart signals
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5
+
+# Set these to match your deployment
+Environment=PROJECT_DIR=/opt/persona-engine
+Environment=COMPOSE_FILE=/opt/persona-engine/docker-compose.architect.yml
+Environment=SIGNAL_DIR=/var/lib/docker/volumes/persona-data/_data/signals
+Environment=POLL_INTERVAL=5
+
+ExecStart=/opt/persona-engine/supervisor/watch-restart.sh
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=persona-supervisor
+
+[Install]
+WantedBy=multi-user.target

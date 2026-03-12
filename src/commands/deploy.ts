@@ -3,10 +3,12 @@ import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import chalk from "chalk"
 import { loadPersona } from "../persona/loader.js"
+import { loadPersonaEnv } from "../utils/config.js"
 
 interface DeployOptions {
   webhookUrl?: string
   port?: string
+  withSupervisor?: boolean
 }
 
 export async function deployPersona(name: string, options: DeployOptions): Promise<void> {
@@ -39,33 +41,31 @@ export async function deployPersona(name: string, options: DeployOptions): Promi
   const memoryLimit = containerConfig.memory_limit ?? "512M"
   const cpuLimit = containerConfig.cpu_limit ?? "1.0"
 
-  // Build environment variables list
+  // Build environment variables from the persona's own .env file
+  const personaEnv = loadPersonaEnv(name)
   const environment: string[] = [
     "PERSONA_ENGINE_CONTAINERIZED=true",
     `WEBHOOK_URL=${webhookUrl}`,
   ]
 
-  if (containerConfig.allowed_env && containerConfig.allowed_env.length > 0) {
-    // Only pass through explicitly allowed env vars
-    for (const envName of containerConfig.allowed_env) {
-      const value = process.env[envName]
-      if (value) {
-        environment.push(`${envName}=${value}`)
-      }
-    }
-  } else {
-    // Default: pass through common API keys
-    environment.push(
-      `OPENCODE_API_KEY=${process.env.OPENCODE_API_KEY ?? ""}`,
-      `ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY ?? ""}`,
-      `OPENAI_API_KEY=${process.env.OPENAI_API_KEY ?? ""}`,
-    )
+  // Inject all vars from the persona's .env
+  for (const [key, value] of Object.entries(personaEnv)) {
+    environment.push(`${key}=${value}`)
+  }
+
+  // Inject repo URL from self_update config if not already in .env
+  const selfUpdate = persona.self_update
+  if (selfUpdate?.enabled && selfUpdate.repo_url && !personaEnv.PERSONA_ENGINE_REPO_URL) {
+    environment.push(`PERSONA_ENGINE_REPO_URL=${selfUpdate.repo_url}`)
   }
 
   const service: Record<string, unknown> = {
     build: ".",
     command: ["serve", name, "--no-cli", "--port", port],
-    volumes: ["persona-data:/home/persona/.persona-engine"],
+    volumes: [
+      "persona-data:/home/persona/.persona-engine",
+      ...(selfUpdate?.enabled ? ["persona-workspace:/home/persona/workspace"] : []),
+    ],
     ports: [`${port}:${port}`],
     environment,
     network_mode: networkMode,
@@ -82,9 +82,14 @@ export async function deployPersona(name: string, options: DeployOptions): Promi
     restart: "unless-stopped",
   }
 
+  const volumes: Record<string, Record<string, never>> = { "persona-data": {} }
+  if (selfUpdate?.enabled) {
+    volumes["persona-workspace"] = {}
+  }
+
   const composeOverride = {
     services: { persona: service },
-    volumes: { "persona-data": {} },
+    volumes,
   }
 
   const composePath = join(projectDir, `docker-compose.${name}.yml`)
@@ -101,6 +106,27 @@ export async function deployPersona(name: string, options: DeployOptions): Promi
     console.log(chalk.green(`\n${persona.name} deployed successfully.`))
     console.log(chalk.dim(`Webhook URL: ${webhookUrl}/webhook/${name}`))
     console.log(chalk.dim(`Stop with: docker compose -f "${composePath}" down`))
+
+    if (options.withSupervisor) {
+      console.log(chalk.bold("\nSupervisor setup instructions:"))
+      console.log(chalk.dim(`
+1. Copy the service file:
+   sudo cp ${projectDir}/supervisor/persona-supervisor.service /etc/systemd/system/
+
+2. Edit the environment variables in the service file:
+   sudo systemctl edit persona-supervisor
+
+   Set PROJECT_DIR, COMPOSE_FILE, and SIGNAL_DIR for your deployment.
+
+3. Enable and start:
+   sudo systemctl daemon-reload
+   sudo systemctl enable persona-supervisor
+   sudo systemctl start persona-supervisor
+
+4. Check logs:
+   journalctl -u persona-supervisor -f
+`))
+    }
   } catch (err) {
     console.error(chalk.red(`Deployment failed: ${(err as Error).message}`))
     process.exit(1)

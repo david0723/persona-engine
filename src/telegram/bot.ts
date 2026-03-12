@@ -71,7 +71,7 @@ export function parseUpdate(body: Record<string, unknown>): TelegramMessage | nu
   }
 }
 
-function splitMessage(text: string, maxLen: number): string[] {
+export function splitMessage(text: string, maxLen: number): string[] {
   if (text.length <= maxLen) return [text]
 
   const chunks: string[] = []

@@ -39,6 +39,12 @@ export interface TelegramConfig {
   allowed_chat_ids?: number[]
 }
 
+export interface SelfUpdateConfig {
+  enabled: boolean
+  repo_url?: string
+  branch?: string // default: "main"
+}
+
 export interface PermissionConfig {
   bash?: "allow" | "ask" | "deny"
   edit?: "allow" | "ask" | "deny"
@@ -56,4 +62,5 @@ export interface PersonaDefinition {
   telegram?: TelegramConfig
   heartbeat: HeartbeatConfig
   permissions?: PermissionConfig
+  self_update?: SelfUpdateConfig
 }

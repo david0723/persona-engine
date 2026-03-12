@@ -2,6 +2,36 @@ import { openCodeRun } from "../runtime/opencode.js"
 import type { MemoryStore } from "./store.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 
+export interface ParsedSummary {
+  relationships: string[]
+  coreMemories: string[]
+  summaryText: string
+}
+
+export function parseSummaryOutput(text: string): ParsedSummary {
+  const lines = text.split("\n")
+  const relationships: string[] = []
+  const coreMemories: string[] = []
+  const summaryLines: string[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith("RELATIONSHIP: ")) {
+      relationships.push(trimmed.slice(14))
+    } else if (trimmed.startsWith("CORE: ")) {
+      coreMemories.push(trimmed.slice(6))
+    } else {
+      summaryLines.push(line)
+    }
+  }
+
+  return {
+    relationships,
+    coreMemories,
+    summaryText: summaryLines.join("\n").trim(),
+  }
+}
+
 export async function summarizeSession(sessionId: string, store: MemoryStore, persona: PersonaDefinition): Promise<void> {
   const turns = store.getTurnsBySession(sessionId)
   if (turns.length < 2) return
@@ -21,24 +51,17 @@ ${conversationText}`
 
   try {
     const text = openCodeRun({ message: prompt, persona })
+    const parsed = parseSummaryOutput(text)
 
-    const lines = text.split("\n")
-    const summaryLines: string[] = []
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (trimmed.startsWith("RELATIONSHIP: ")) {
-        store.addMemory("relationship_note", trimmed.slice(14), 7, sessionId)
-      } else if (trimmed.startsWith("CORE: ")) {
-        store.addMemory("core_memory", trimmed.slice(6), 7, sessionId)
-      } else {
-        summaryLines.push(line)
-      }
+    for (const rel of parsed.relationships) {
+      store.addMemory("relationship_note", rel, 7, sessionId)
+    }
+    for (const core of parsed.coreMemories) {
+      store.addMemory("core_memory", core, 7, sessionId)
     }
 
-    const summary = summaryLines.join("\n").trim()
-    if (summary) {
-      store.addMemory("conversation_summary", summary, 5, sessionId)
+    if (parsed.summaryText) {
+      store.addMemory("conversation_summary", parsed.summaryText, 5, sessionId)
     }
   } catch {
     store.addMemory("conversation_summary", `Session with ${turns.length} turns (summarization failed)`, 3, sessionId)

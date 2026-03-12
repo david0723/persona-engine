@@ -1,12 +1,5 @@
 #!/usr/bin/env node
 
-import { config } from "dotenv"
-import { paths } from "./utils/config.js"
-import { join } from "node:path"
-
-// Load .env from ~/.persona-engine/ so it works from any directory
-config({ path: join(paths.home, ".env") })
-
 import { Command } from "commander"
 import { createPersona } from "./commands/create.js"
 import { listPersonas } from "./commands/list.js"
@@ -16,6 +9,7 @@ import { inspectMemory } from "./commands/memory.js"
 import { installHeartbeat } from "./commands/install-heartbeat.js"
 import { servePersona } from "./commands/serve.js"
 import { deployPersona } from "./commands/deploy.js"
+import { attachToPersona } from "./commands/attach.js"
 
 const program = new Command()
   .name("persona")
@@ -25,6 +19,7 @@ const program = new Command()
 program
   .command("create <name>")
   .description("Create a new persona")
+  .option("-t, --template <template>", "Template to use (default, architect)")
   .action(createPersona)
 
 program
@@ -63,10 +58,16 @@ program
   .action(servePersona)
 
 program
+  .command("attach <name>")
+  .description("Attach to a running persona's session")
+  .action(attachToPersona)
+
+program
   .command("deploy <name>")
   .description("Build and deploy persona as a Docker container")
   .option("--webhook-url <url>", "External webhook URL for Telegram")
   .option("-p, --port <port>", "Container port", "3100")
+  .option("--with-supervisor", "Show systemd supervisor setup instructions")
   .action(deployPersona)
 
 program.parse()
