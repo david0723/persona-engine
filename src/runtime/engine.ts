@@ -113,6 +113,7 @@ export class ConversationEngine extends EventEmitter {
       dir,
       continueSession: !this.isFirstMessage,
       title: `persona-${this.persona.name}`,
+      model: this.persona.model,
     }
 
     // Use streaming for CLI and attach, non-streaming for Telegram

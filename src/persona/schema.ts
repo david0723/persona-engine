@@ -54,6 +54,7 @@ export interface PermissionConfig {
 
 export interface PersonaDefinition {
   name: string
+  model?: string
   identity: PersonaIdentity
   backstory: string
   instructions: string

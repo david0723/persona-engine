@@ -75,6 +75,7 @@ export function openCodeRunStreaming(
     })
 
     let output = ""
+    let stderrOutput = ""
     let firstChunkFired = false
 
     child.stdout.on("data", (data: Buffer) => {
@@ -92,9 +93,9 @@ export function openCodeRunStreaming(
     })
 
     child.stderr.on("data", (data: Buffer) => {
-      // When onChunk is set, Ink controls the terminal - suppress stderr
-      if (onChunk) return
       const text = data.toString()
+      stderrOutput += text
+      if (onChunk) return // Ink controls the terminal - suppress stderr during streaming
       if (!text.includes("MetadataLookup") && !text.includes("warn")) {
         process.stderr.write(data)
       }
@@ -104,7 +105,7 @@ export function openCodeRunStreaming(
       if (code === 0 || code === null) {
         resolve(output)
       } else {
-        reject(new Error(`opencode exited with code ${code}`))
+        reject(new Error(`opencode exited with code ${code}: ${stderrOutput.trim()}`))
       }
     })
 

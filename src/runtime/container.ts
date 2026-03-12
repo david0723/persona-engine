@@ -209,6 +209,7 @@ export function execInContainerStreaming(
     })
 
     let output = ""
+    let stderrOutput = ""
     let firstChunkFired = false
 
     child.stdout.on("data", (data: Buffer) => {
@@ -226,9 +227,9 @@ export function execInContainerStreaming(
     })
 
     child.stderr.on("data", (data: Buffer) => {
-      // When onChunk is set, Ink controls the terminal - suppress stderr
-      if (onChunk) return
       const text = data.toString()
+      stderrOutput += text
+      if (onChunk) return // Ink controls the terminal - suppress stderr during streaming
       if (!text.includes("MetadataLookup") && !text.includes("warn")) {
         process.stderr.write(data)
       }
@@ -238,7 +239,7 @@ export function execInContainerStreaming(
       if (code === 0 || code === null) {
         resolve(output)
       } else {
-        reject(new Error(`Container command exited with code ${code}`))
+        reject(new Error(`Container command exited with code ${code}: ${stderrOutput.trim()}`))
       }
     })
 
