@@ -1,8 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk"
+import { GoogleGenAI, type FunctionCall, type Part } from "@google/genai"
 import { randomUUID } from "node:crypto"
 import { appendFileSync } from "node:fs"
 import { buildSystemPrompt } from "./prompt-builder.js"
-import { resolveTools, toAnthropicTools, getTool } from "../tools/registry.js"
+import { resolveTools, toGeminiFunctionDeclarations, getTool } from "../tools/registry.js"
 import type { ToolContext } from "../tools/registry.js"
 import { MemoryStore } from "../memory/store.js"
 import { paths } from "../utils/config.js"
@@ -10,14 +10,14 @@ import type { PersonaDefinition } from "../persona/schema.js"
 
 import "../tools/index.js"
 
-const HEARTBEAT_MODEL = "claude-sonnet-4-20250514"
+const HEARTBEAT_MODEL = "gemini-2.5-flash"
 
 export async function runHeartbeat(persona: PersonaDefinition): Promise<void> {
-  const client = new Anthropic()
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   const store = new MemoryStore(persona.name)
   const sessionId = `heartbeat-${randomUUID()}`
   const tools = resolveTools(persona.tools)
-  const anthropicTools = toAnthropicTools(tools)
+  const functionDeclarations = toGeminiFunctionDeclarations(tools)
   const toolContext: ToolContext = { persona, store, sessionId }
   const logPath = paths.heartbeatLog(persona.name)
 
@@ -47,57 +47,49 @@ You MUST use the journal tool at least once to record your thoughts.`
   log(logPath, `\n--- Heartbeat: ${timestamp} ---\n`)
 
   try {
-    const messages: Anthropic.MessageParam[] = [
-      { role: "user", content: "It's time for your private reflection. What's on your mind?" },
-    ]
-
-    let response = await client.messages.create({
+    const chat = ai.chats.create({
       model: HEARTBEAT_MODEL,
-      max_tokens: 2048,
-      system: heartbeatPrompt,
-      messages,
-      tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+      config: {
+        systemInstruction: heartbeatPrompt,
+        tools: functionDeclarations.length > 0
+          ? [{ functionDeclarations }]
+          : undefined,
+        maxOutputTokens: 2048,
+      },
+    })
+
+    let response = await chat.sendMessage({
+      message: "It's time for your private reflection. What's on your mind?",
     })
 
     // Process up to 3 rounds of tool calls
     let rounds = 0
-    while (response.stop_reason === "tool_use" && rounds < 3) {
+    while (response.functionCalls && response.functionCalls.length > 0 && rounds < 3) {
       rounds++
-      const toolCalls = response.content.filter(
-        (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
-      )
 
-      const results: Anthropic.ToolResultBlockParam[] = []
-      for (const call of toolCalls) {
-        const tool = getTool(call.name)
+      const functionResponses: Part[] = []
+      for (const call of response.functionCalls) {
+        const tool = getTool(call.name ?? "")
+        const args = (call.args ?? {}) as Record<string, unknown>
         const result = tool
-          ? await tool.execute(call.input as Record<string, unknown>, toolContext)
+          ? await tool.execute(args, toolContext)
           : `Unknown tool: ${call.name}`
 
-        log(logPath, `[tool: ${call.name}] ${JSON.stringify(call.input).slice(0, 200)}`)
+        log(logPath, `[tool: ${call.name}] ${JSON.stringify(args).slice(0, 200)}`)
         log(logPath, `[result] ${result.slice(0, 200)}`)
 
-        results.push({ type: "tool_result", tool_use_id: call.id, content: result })
+        functionResponses.push({
+          functionResponse: {
+            name: call.name ?? "",
+            response: { result },
+          },
+        })
       }
 
-      messages.push({ role: "assistant", content: response.content })
-      messages.push({ role: "user", content: results })
-
-      response = await client.messages.create({
-        model: HEARTBEAT_MODEL,
-        max_tokens: 2048,
-        system: heartbeatPrompt,
-        messages,
-        tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-      })
+      response = await chat.sendMessage({ message: functionResponses })
     }
 
-    // Log final text
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map(b => b.text)
-      .join("\n")
-
+    const text = response.text ?? ""
     if (text) {
       log(logPath, `\n${text}`)
     }

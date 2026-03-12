@@ -1,23 +1,23 @@
+import { Type } from "@google/genai"
 import { registerTool } from "./registry.js"
 import type { MemoryKind } from "../memory/types.js"
 
 registerTool({
   name: "remember",
   description: "Store an important memory that you want to keep long-term. Use 'core_memory' for things about yourself (realizations, preferences, opinions). Use 'relationship_note' for things about people you interact with.",
-  input_schema: {
-    type: "object" as const,
+  parameters: {
+    type: Type.OBJECT,
     properties: {
       content: {
-        type: "string",
+        type: Type.STRING,
         description: "What you want to remember",
       },
       kind: {
-        type: "string",
-        enum: ["core_memory", "relationship_note"],
+        type: Type.STRING,
         description: "Type of memory: core_memory (about yourself) or relationship_note (about someone else)",
       },
       importance: {
-        type: "number",
+        type: Type.NUMBER,
         description: "How important this is (1-10, default 7)",
       },
     },

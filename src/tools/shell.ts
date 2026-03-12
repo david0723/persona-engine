@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process"
+import { Type } from "@google/genai"
 import { registerTool } from "./registry.js"
 
 const ALLOWED_COMMANDS = new Set([
@@ -10,11 +11,11 @@ const ALLOWED_COMMANDS = new Set([
 registerTool({
   name: "shell",
   description: "Run a shell command. Limited to safe, read-only commands for exploring the system.",
-  input_schema: {
-    type: "object" as const,
+  parameters: {
+    type: Type.OBJECT,
     properties: {
       command: {
-        type: "string",
+        type: Type.STRING,
         description: "The shell command to run",
       },
     },

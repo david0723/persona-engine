@@ -1,17 +1,18 @@
+import { Type } from "@google/genai"
 import { registerTool } from "./registry.js"
 
 registerTool({
   name: "journal",
   description: "Write a journal entry to record your thoughts, reflections, or observations. Use this to build your inner life and remember important realizations.",
-  input_schema: {
-    type: "object" as const,
+  parameters: {
+    type: Type.OBJECT,
     properties: {
       entry: {
-        type: "string",
+        type: Type.STRING,
         description: "The journal entry content",
       },
       topic: {
-        type: "string",
+        type: Type.STRING,
         description: "Optional topic or theme for this entry",
       },
     },

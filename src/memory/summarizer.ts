@@ -1,7 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk"
+import { GoogleGenAI } from "@google/genai"
 import type { MemoryStore } from "./store.js"
 
-const SUMMARY_MODEL = "claude-haiku-4-5-20251001"
+const SUMMARY_MODEL = "gemini-2.5-flash"
 
 export async function summarizeSession(sessionId: string, store: MemoryStore): Promise<void> {
   const turns = store.getTurnsBySession(sessionId)
@@ -9,28 +9,24 @@ export async function summarizeSession(sessionId: string, store: MemoryStore): P
 
   const conversationText = turns.map(t => t.content).join("\n")
 
-  const client = new Anthropic()
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
 
-  const response = await client.messages.create({
+  const response = await ai.models.generateContent({
     model: SUMMARY_MODEL,
-    max_tokens: 1024,
-    system: `You are a memory summarizer. Given a conversation, produce:
+    config: {
+      systemInstruction: `You are a memory summarizer. Given a conversation, produce:
 1. A 2-3 paragraph summary of what was discussed, key moments, and emotional tone.
 2. Any important facts about the user that should be remembered (format each as a separate line starting with "RELATIONSHIP: ").
 3. Any important realizations or personality developments (format each as "CORE: ").
 
 Be concise but capture the essence of the interaction.`,
-    messages: [
-      {
-        role: "user",
-        content: `Summarize this conversation:\n\n${conversationText}`,
-      },
-    ],
+      maxOutputTokens: 1024,
+    },
+    contents: `Summarize this conversation:\n\n${conversationText}`,
   })
 
-  const text = response.content[0].type === "text" ? response.content[0].text : ""
+  const text = response.text ?? ""
 
-  // Extract and store structured memories
   const lines = text.split("\n")
   const summaryLines: string[] = []
 
@@ -45,12 +41,10 @@ Be concise but capture the essence of the interaction.`,
     }
   }
 
-  // Store the summary
   const summary = summaryLines.join("\n").trim()
   if (summary) {
     store.addMemory("conversation_summary", summary, 5, sessionId)
   }
 
-  // Prune raw turns for this session (keep summaries)
   store.deleteTurnsForSession(sessionId)
 }

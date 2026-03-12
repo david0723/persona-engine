@@ -1,16 +1,17 @@
 import { readFileSync, existsSync } from "node:fs"
 import { resolve } from "node:path"
 import { homedir } from "node:os"
+import { Type } from "@google/genai"
 import { registerTool } from "./registry.js"
 
 registerTool({
   name: "read-file",
   description: "Read the contents of a file from disk. Restricted to your home directory.",
-  input_schema: {
-    type: "object" as const,
+  parameters: {
+    type: Type.OBJECT,
     properties: {
       path: {
-        type: "string",
+        type: Type.STRING,
         description: "Path to the file (absolute or relative to home)",
       },
     },
