@@ -4,50 +4,128 @@ A CLI tool for creating autonomous AI characters that live on your machine. Each
 
 Personas develop personality over time through conversation, self-reflection, and free will. Their core identity stays fixed (defined by you), but their memories, opinions, and inner life evolve naturally.
 
-## Getting started
+## Quick start: from zero to Telegram bot
 
-### Prerequisites
+This walks you through the entire setup, from a fresh clone to a persona you can message on Telegram.
+
+### 1. Prerequisites
 
 - Node.js 20+
-- A [Gemini API key](https://aistudio.google.com/apikey)
+- [opencode](https://opencode.ai) installed (`curl -fsSL https://opencode.ai/install | bash`)
+- An LLM API key (Gemini, Anthropic, OpenAI, etc.) configured in opencode
+- A Telegram account
 
-### Install
+### 2. Install persona-engine
 
 ```bash
 git clone <repo-url> && cd persona-engine
 npm install
 npm run build
+npm link   # makes the `persona` command available globally
 ```
 
-To make the `persona` command available globally:
+### 3. Set your API key
+
+opencode supports multiple providers. Set the key for whichever provider you want to use:
 
 ```bash
-npm link
+# Pick one (or configure via opencode auth)
+export GEMINI_API_KEY="your-key"
+export ANTHROPIC_API_KEY="your-key"
+export OPENAI_API_KEY="your-key"
 ```
 
-### Set your API key
+Add it to your shell profile (`~/.zshrc`, `~/.bashrc`) to persist across sessions. You can also put it in `~/.persona-engine/.env`.
 
-```bash
-export GEMINI_API_KEY="your-key-here"
-```
-
-Add it to your shell profile (`~/.zshrc`, `~/.bashrc`) to persist across sessions.
-
-### Create your first persona
+### 4. Create a persona
 
 ```bash
 persona create oracle
 ```
 
-This generates a persona definition at `~/.persona-engine/personas/oracle/persona.yaml` and opens it in your `$EDITOR` (if set). Customize the identity, backstory, and instructions to shape who this character is.
+This generates `~/.persona-engine/personas/oracle/persona.yaml` and opens it in your `$EDITOR`. Customize the identity, backstory, and instructions to shape who this character is.
 
-### Start chatting
+### 5. Test it locally first
 
 ```bash
 persona chat oracle
 ```
 
-Press `Ctrl+D` to exit. On exit, the session is summarized and stored as long-term memory.
+Have a quick conversation, make sure it responds. Press `Ctrl+D` to exit (this triggers memory summarization).
+
+### 6. Create a Telegram bot
+
+1. Open Telegram and message [@BotFather](https://t.me/BotFather)
+2. Send `/newbot`
+3. Pick a name (e.g. "Oracle Bot") and a username (e.g. `oracle_persona_bot`)
+4. BotFather gives you a token like `123456789:ABCdefGHIjklMNO...`. Copy it.
+
+### 7. Get your Telegram chat ID
+
+You need your chat ID to restrict who can talk to the bot. The easiest way:
+
+1. Message [@userinfobot](https://t.me/userinfobot) on Telegram
+2. It replies with your numeric chat ID (e.g. `123456789`)
+
+### 8. Configure Telegram in the persona
+
+Edit the persona YAML:
+
+```bash
+$EDITOR ~/.persona-engine/personas/oracle/persona.yaml
+```
+
+Uncomment and fill in the Telegram section:
+
+```yaml
+telegram:
+  enabled: true
+  bot_token: "123456789:ABCdefGHIjklMNO..."
+  allowed_chat_ids: [123456789]  # your chat ID from step 7
+```
+
+The `allowed_chat_ids` field is optional but strongly recommended. Without it, anyone who finds your bot can talk to it.
+
+### 9. Disable container mode (for local runs)
+
+Unless you have Docker set up, disable container isolation for now:
+
+```yaml
+container:
+  enabled: false
+```
+
+### 10. Start the persona
+
+```bash
+persona serve oracle
+```
+
+This does four things:
+1. Starts an `opencode serve` session (persistent, not one process per message)
+2. Starts a local webhook server on port 3100
+3. Opens a public tunnel (via cloudflared or localtunnel) to expose the webhook
+4. Registers the webhook URL with Telegram
+
+You'll see output like:
+
+```
+Tunnel active: https://abc-xyz.trycloudflare.com
+Telegram webhook registered: https://abc-xyz.trycloudflare.com/webhook/oracle
+oracle is live on Telegram and CLI.
+```
+
+Now open Telegram, find your bot, and send it a message. You should get a response. You can also type in the terminal for a CLI conversation at the same time.
+
+Press `Ctrl+C` to shut down (cleans up webhook, summarizes session).
+
+### Tunnel options
+
+By default, `persona serve` tries [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) first, then falls back to [localtunnel](https://github.com/localtunnel/localtunnel). Install cloudflared for the most reliable experience:
+
+```bash
+brew install cloudflared
+```
 
 ## Commands
 
@@ -56,53 +134,46 @@ Press `Ctrl+D` to exit. On exit, the session is summarized and stored as long-te
 | `persona create <name>` | Create a new persona from template |
 | `persona chat <name>` | Interactive chat session |
 | `persona list` | Show all personas |
+| `persona serve <name>` | Start CLI + Telegram (requires bot token) |
+| `persona deploy <name>` | Build and deploy as a Docker container |
 | `persona heartbeat <name>` | Run one autonomous thinking cycle |
 | `persona memory <name>` | Inspect stored memories |
 | `persona install-heartbeat <name>` | Schedule recurring heartbeats via launchd |
 
+### Serve options
+
+```bash
+persona serve oracle                    # CLI + Telegram on port 3100
+persona serve oracle --port 4000        # Custom port
+persona serve oracle --no-cli           # Telegram only, no CLI input
+```
+
 ### Inspecting memories
 
 ```bash
-# Overview stats
-persona memory oracle
-
-# Filter by type
-persona memory oracle --kind journal_entry
+persona memory oracle                              # Overview stats
+persona memory oracle --kind journal_entry          # Filter by type
 persona memory oracle --kind core_memory
 persona memory oracle --kind relationship_note
 persona memory oracle --kind conversation_summary
-
-# Limit results
-persona memory oracle --kind journal_entry --recent 3
+persona memory oracle --kind journal_entry --recent 3  # Limit results
 ```
 
 ### Heartbeat (autonomous thinking)
 
 The heartbeat gives personas private thinking time. When triggered, the persona reflects on recent conversations, writes journal entries, and explores whatever interests it.
 
-Run it manually:
-
 ```bash
-persona heartbeat oracle
-```
-
-Or schedule it to run automatically every N minutes (uses macOS launchd):
-
-```bash
-persona install-heartbeat oracle
+persona heartbeat oracle             # Run once manually
+persona install-heartbeat oracle     # Schedule via macOS launchd
+persona install-heartbeat oracle -u  # Remove schedule
 ```
 
 The interval is defined in the persona's YAML (`heartbeat.interval_minutes`). Logs go to `~/.persona-engine/personas/<name>/heartbeat.log`.
 
-To remove the schedule:
-
-```bash
-persona install-heartbeat oracle --uninstall
-```
-
 ## Persona definition
 
-Each persona lives at `~/.persona-engine/personas/<name>/persona.yaml`. Here's the full schema:
+Each persona lives at `~/.persona-engine/personas/<name>/persona.yaml`:
 
 ```yaml
 name: "Oracle"
@@ -127,11 +198,21 @@ instructions: |
   - Use your journal to record thoughts
   - Let your personality emerge naturally
 
-tools:
-  - journal       # Write reflections and thoughts
-  - remember      # Store long-term memories
-  - shell         # Run safe read-only commands
-  - read-file     # Read files from home directory
+# MCP servers give the persona tools (search, file access, APIs, etc.)
+# mcp_servers:
+#   "Brave Search":
+#     type: local
+#     command: ["npx", "-y", "@modelcontextprotocol/server-brave-search"]
+#     environment:
+#       BRAVE_API_KEY: "your-key"
+
+container:
+  enabled: false  # set true for Docker isolation
+
+telegram:
+  enabled: true
+  bot_token: "your-bot-token"
+  allowed_chat_ids: [your_chat_id]
 
 heartbeat:
   enabled: true
@@ -152,9 +233,9 @@ Personas have five types of memory:
 |---|---|---|
 | `conversation_turn` | Raw chat messages | Automatically during chat |
 | `conversation_summary` | Compressed session summaries | Automatically on exit |
-| `core_memory` | Self-knowledge, realizations, opinions | The persona (via `remember` tool) or summarizer |
-| `relationship_note` | Facts about people | The persona (via `remember` tool) or summarizer |
-| `journal_entry` | Private reflections | The persona (via `journal` tool) |
+| `core_memory` | Self-knowledge, realizations, opinions | The persona or summarizer |
+| `relationship_note` | Facts about people | The persona or summarizer |
+| `journal_entry` | Private reflections | The persona (via heartbeat) |
 
 When building a prompt, memories are loaded in priority order within a token budget:
 
@@ -164,21 +245,178 @@ When building a prompt, memories are loaded in priority order within a token bud
 4. Conversation summaries from past sessions
 5. Current session turns (sliding window)
 
-Old conversation turns are automatically pruned after summarization. Summaries and core memories persist indefinitely.
+Old conversation turns are pruned after summarization. Summaries and core memories persist indefinitely.
+
+## Docker deployment
+
+For running a persona as a long-lived service (no tunnel needed, direct webhook).
+
+### Quick deploy
+
+```bash
+persona deploy oracle --webhook-url https://your-domain.com
+```
+
+This builds the Docker image, generates a compose file, and starts the container.
+
+### Manual deploy with docker-compose
+
+1. Build the image:
+
+```bash
+npm run build
+docker compose build
+```
+
+2. Create a `.env` file (or export these variables):
+
+```bash
+PERSONA_NAME=oracle
+WEBHOOK_URL=https://your-domain.com
+OPENCODE_API_KEY=your-key
+# or ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
+```
+
+3. Run it:
+
+```bash
+docker compose up -d
+```
+
+The container runs `persona serve oracle --no-cli --port 3100` with:
+- `PERSONA_ENGINE_CONTAINERIZED=true` (skips Docker-in-Docker)
+- `WEBHOOK_URL` (skips tunnel, uses your domain directly)
+- Your API keys passed through
+
+4. Point your domain's reverse proxy to port 3100. The webhook path is `/webhook/<persona-name>`.
+
+5. Verify by messaging your bot on Telegram.
+
+### Stop / restart
+
+```bash
+docker compose down       # stop
+docker compose up -d      # restart (data persists in volume)
+docker compose logs -f    # watch logs
+```
+
+## Security and isolation
+
+Containers act as a cage: the persona gets full autonomy inside (auto-approved bash, edit, read), but you strictly control what's available from the outside. Network access, API keys, MCP servers, and tools are all declared in the persona YAML. The persona never sees raw secrets and can't escape the container.
+
+### Container security options
+
+```yaml
+container:
+  enabled: true
+  network: none           # "none" = no internet (safest), "bridge" = internet access
+  memory_limit: "512m"
+  cpu_limit: "1.0"
+  allowed_env:             # only these host env vars are passed to the container
+    - GEMINI_API_KEY
+```
+
+- `network: none` (default) blocks all outbound traffic. No DNS, no TCP. Brave Search MCP and web tools won't work. This is intentional for maximum isolation.
+- `network: bridge` gives normal Docker networking. Use this when the persona needs internet (Telegram, GitHub API, web search).
+- `allowed_env` controls which host env vars are passed through. If not set, common API keys are passed by default.
+- The container runs with a read-only root filesystem and resource limits.
+
+### Permissions
+
+Control what tools the persona can use without prompting:
+
+```yaml
+permissions:
+  bash: allow    # "allow" | "ask" | "deny"
+  edit: allow
+  read: allow
+```
+
+When `container.enabled: true` and no explicit `permissions` are set, all tools default to `allow` (full autonomy inside the cage). Outside of containers, everything defaults to `ask`.
+
+### Example: GitHub merge bot
+
+Task-specific personas with exactly the permissions they need:
+
+```yaml
+name: "merge-bot"
+
+identity:
+  role: "A diligent CI/CD assistant that keeps PRs clean and merged"
+  speaking_style: "Brief, technical, status-oriented"
+  values:
+    - "Clean git history"
+    - "Green pipelines"
+    - "Fast merges"
+
+backstory: |
+  You are merge-bot. Your job is to monitor GitHub repos for PRs
+  that are ready to merge. You rebase them, wait for CI, and merge
+  when green.
+
+instructions: |
+  - Check for open PRs that have all approvals
+  - Rebase onto main if behind
+  - If CI is red, comment what failed
+  - If CI is green and approved, merge with squash
+  - Never force-push
+  - Never merge without approvals
+
+container:
+  enabled: true
+  network: bridge
+  memory_limit: "512m"
+  cpu_limit: "0.5"
+  allowed_env:
+    - GITHUB_TOKEN
+    - GEMINI_API_KEY
+
+permissions:
+  bash: allow
+  edit: allow
+  read: allow
+
+heartbeat:
+  enabled: true
+  interval_minutes: 15
+  activities:
+    - "Check all open PRs in the configured repos"
+    - "Rebase any PRs that are behind main"
+    - "Merge PRs that are green and approved"
+```
+
+This persona gets `gh` CLI via GITHUB_TOKEN and internet for API calls, but nothing else. No SSH keys, no other repos, no browser data. Blast radius = the repos the token has access to.
 
 ## Architecture
 
 ```
+persona-engine (CLI)
+  |
+  +-- opencode serve (persistent LLM session)
+  |     |
+  |     +-- LLM provider (Gemini, Claude, GPT, etc.)
+  |     +-- MCP servers (tools, search, APIs)
+  |
+  +-- Telegram webhook server
+  |     +-- tunnel (cloudflared/localtunnel) OR direct (WEBHOOK_URL)
+  |
+  +-- SQLite memory store
+  +-- Heartbeat scheduler (launchd)
+```
+
+```
 ~/.persona-engine/
+  .env                     # API keys (optional)
   personas/
     <name>/
-      persona.yaml       # Identity definition (you edit this)
-      memory.db          # SQLite database (memories, journals, summaries)
-      heartbeat.log      # Autonomous thinking logs
+      persona.yaml         # Identity definition (you edit this)
+      opencode.json        # Auto-generated opencode config
+      memory.db            # SQLite database
+      heartbeat.log        # Autonomous thinking logs
 ```
 
 Built with:
-- [Google GenAI SDK](https://github.com/googleapis/js-genai) (Gemini 2.5 Flash)
+- [opencode](https://opencode.ai) as the LLM runtime (model-agnostic, tool/MCP access)
 - [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) for persistent memory
 - [Commander](https://github.com/tj/commander.js) for CLI
 - TypeScript, ESM, Node.js 20+
@@ -190,15 +428,14 @@ npm run dev    # Watch mode (recompiles on change)
 npm run build  # One-time compile
 ```
 
-Project structure:
-
 ```
 src/
   index.ts                # CLI entry point
   commands/               # One file per CLI command
   persona/                # Schema, loader, defaults
   memory/                 # SQLite store, types, summarizer
-  runtime/                # Chat loop, prompt builder, heartbeat runner
-  tools/                  # Tool definitions (journal, remember, shell, read-file)
+  runtime/                # Engine, opencode integration, prompt builder
+  telegram/               # Bot API, webhook server, tunnel
+  tools/                  # Tool registry
   utils/                  # Config paths, token budgeting, stream helpers
 ```

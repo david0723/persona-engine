@@ -27,12 +27,23 @@ export type McpServer = McpServerLocal | McpServerRemote
 export interface ContainerConfig {
   enabled: boolean
   image?: string // defaults to "persona-engine:latest"
+  network?: "none" | "bridge" | "host" // default: "none" (no internet)
+  memory_limit?: string // e.g. "512m"
+  cpu_limit?: string // e.g. "1.0"
+  allowed_env?: string[] // env var names to pass through from host
 }
 
 export interface TelegramConfig {
   enabled: boolean
   bot_token: string
   allowed_chat_ids?: number[]
+}
+
+export interface PermissionConfig {
+  bash?: "allow" | "ask" | "deny"
+  edit?: "allow" | "ask" | "deny"
+  read?: "allow" | "ask" | "deny"
+  external_directory?: "allow" | "ask" | "deny"
 }
 
 export interface PersonaDefinition {
@@ -44,4 +55,5 @@ export interface PersonaDefinition {
   container?: ContainerConfig
   telegram?: TelegramConfig
   heartbeat: HeartbeatConfig
+  permissions?: PermissionConfig
 }

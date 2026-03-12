@@ -89,22 +89,21 @@ export class ConversationEngine extends EventEmitter {
       message = taggedText
     }
 
+    const dir = paths.personaDir(this.persona.name)
+    const runOptions = {
+      message,
+      persona: this.persona,
+      dir,
+      continueSession: !this.isFirstMessage,
+      title: `persona-${this.persona.name}`,
+    }
+
     // Use streaming for CLI, non-streaming for Telegram
     let output: string
     if (source.type === "cli") {
-      output = await openCodeRunStreaming({
-        message,
-        persona: this.persona,
-        dir: paths.personaDir(this.persona.name),
-        title: `persona-${this.persona.name}`,
-      })
+      output = await openCodeRunStreaming(runOptions)
     } else {
-      output = openCodeRun({
-        message,
-        persona: this.persona,
-        dir: paths.personaDir(this.persona.name),
-        title: `persona-${this.persona.name}`,
-      })
+      output = openCodeRun(runOptions)
     }
 
     const trimmed = output.trim()

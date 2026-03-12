@@ -1,26 +1,32 @@
 FROM node:20-slim
 
-# Install common CLI tools the persona might want to use
+# Install common CLI tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     jq \
-    tree \
-    vim \
-    wget \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Install opencode
 RUN curl -fsSL https://opencode.ai/install | bash
 
-# Create persona user (non-root)
-RUN useradd -m -s /bin/bash persona
+# Copy application
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --production
+COPY dist/ dist/
+
+# Create non-root user and set up opencode for it
+RUN useradd -m -s /bin/bash persona && \
+    cp -r /root/.opencode /home/persona/.opencode && \
+    chown -R persona:persona /home/persona /app
+
 USER persona
-WORKDIR /home/persona
 
-# Data directory will be mounted from host
-RUN mkdir -p /home/persona/data /home/persona/workspace
+# Persona data persisted via volume
+VOLUME /home/persona/.persona-engine
 
-# Keep container running
-CMD ["sleep", "infinity"]
+EXPOSE 3100
+
+ENTRYPOINT ["node", "/app/dist/index.js"]

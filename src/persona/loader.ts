@@ -32,7 +32,38 @@ function validatePersona(data: Record<string, unknown>): PersonaDefinition {
 
   if (typeof data.backstory !== "string") errors.push("backstory must be a string")
   if (typeof data.instructions !== "string") errors.push("instructions must be a string")
-  // mcp_servers and container are optional, no validation needed
+  // Validate optional container config
+  if (data.container != null) {
+    const container = data.container as Record<string, unknown>
+    if (typeof container !== "object") {
+      errors.push("container must be an object")
+    } else {
+      if (container.enabled != null && typeof container.enabled !== "boolean")
+        errors.push("container.enabled must be a boolean")
+      if (container.network != null && !["none", "bridge", "host"].includes(container.network as string))
+        errors.push('container.network must be "none", "bridge", or "host"')
+      if (container.memory_limit != null && typeof container.memory_limit !== "string")
+        errors.push("container.memory_limit must be a string")
+      if (container.cpu_limit != null && typeof container.cpu_limit !== "string")
+        errors.push("container.cpu_limit must be a string")
+      if (container.allowed_env != null && !Array.isArray(container.allowed_env))
+        errors.push("container.allowed_env must be an array of strings")
+    }
+  }
+
+  // Validate optional permissions config
+  const validPermValues = ["allow", "ask", "deny"]
+  if (data.permissions != null) {
+    const perms = data.permissions as Record<string, unknown>
+    if (typeof perms !== "object") {
+      errors.push("permissions must be an object")
+    } else {
+      for (const key of ["bash", "edit", "read", "external_directory"]) {
+        if (perms[key] != null && !validPermValues.includes(perms[key] as string))
+          errors.push(`permissions.${key} must be "allow", "ask", or "deny"`)
+      }
+    }
+  }
 
   const heartbeat = data.heartbeat as Record<string, unknown> | undefined
   if (!heartbeat || typeof heartbeat !== "object") {

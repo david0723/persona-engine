@@ -1,4 +1,4 @@
-import { execSync, spawn } from "node:child_process"
+import { execFileSync, execSync, spawn } from "node:child_process"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { paths } from "../utils/config.js"
@@ -6,6 +6,14 @@ import type { PersonaDefinition } from "../persona/schema.js"
 
 const DEFAULT_IMAGE = "persona-engine:latest"
 const DOCKERFILE_PATH = join(import.meta.dirname, "..", "..", "Dockerfile")
+
+/**
+ * When running inside the full-stack container (PERSONA_ENGINE_CONTAINERIZED=true),
+ * opencode is already in the same container. Skip all Docker-in-Docker logic.
+ */
+export function isContainerized(): boolean {
+  return process.env.PERSONA_ENGINE_CONTAINERIZED === "true"
+}
 
 function containerName(personaName: string): string {
   return `persona-${personaName.replace(/[^a-zA-Z0-9-]/g, "-")}`
@@ -37,6 +45,8 @@ export function isContainerRunning(persona: PersonaDefinition): boolean {
 }
 
 export function ensureContainer(persona: PersonaDefinition): void {
+  if (isContainerized()) return // Already inside the full-stack container
+
   if (!isDockerAvailable()) {
     throw new Error("Docker is not running. Start Docker Desktop or disable container mode in persona.yaml (container.enabled: false)")
   }
@@ -73,17 +83,12 @@ export function execInContainer(
 ): string {
   const name = containerName(persona.name)
 
-  const result = execSync(
-    `docker exec ${name} ${command.map(c => `"${c.replace(/"/g, '\\"')}"`).join(" ")}`,
-    {
-      encoding: "utf-8",
-      timeout: 300000, // 5 minutes
-      maxBuffer: 1024 * 1024 * 10,
-      stdio: ["pipe", "pipe", "pipe"],
-    }
-  )
-
-  return result
+  return execFileSync("docker", ["exec", name, ...command], {
+    encoding: "utf-8",
+    timeout: 300000, // 5 minutes
+    maxBuffer: 1024 * 1024 * 10,
+    stdio: ["pipe", "pipe", "pipe"],
+  })
 }
 
 export function execInContainerStreaming(

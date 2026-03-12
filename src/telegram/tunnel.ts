@@ -3,6 +3,12 @@ import { spawn, type ChildProcess } from "node:child_process"
 let tunnelProcess: ChildProcess | null = null
 
 export async function startTunnel(port: number): Promise<string> {
+  // If WEBHOOK_URL is set (e.g. in Docker deployment), skip tunnel entirely
+  const webhookUrl = process.env.WEBHOOK_URL
+  if (webhookUrl) {
+    return webhookUrl
+  }
+
   // Try cloudflared first, then localtunnel
   try {
     return await startCloudflared(port)

@@ -13,7 +13,7 @@ function plistPath(name: string): string {
 
 function buildPlist(name: string, intervalSeconds: number): string {
   const nodePath = process.execPath
-  const scriptPath = join(process.cwd(), "dist", "index.js")
+  const scriptPath = join(import.meta.dirname, "..", "index.js")
   const home = homedir()
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -40,7 +40,7 @@ function buildPlist(name: string, intervalSeconds: number): string {
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>/usr/local/bin:/usr/bin:/bin:${join(home, ".nvm/versions/node/v20.19.0/bin")}</string>
+    <string>/usr/local/bin:/usr/bin:/bin:${nodePath.substring(0, nodePath.lastIndexOf("/"))}</string>
     <key>HOME</key>
     <string>${home}</string>
   </dict>

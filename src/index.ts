@@ -15,6 +15,7 @@ import { heartbeatCommand } from "./commands/heartbeat.js"
 import { inspectMemory } from "./commands/memory.js"
 import { installHeartbeat } from "./commands/install-heartbeat.js"
 import { servePersona } from "./commands/serve.js"
+import { deployPersona } from "./commands/deploy.js"
 
 const program = new Command()
   .name("persona")
@@ -60,5 +61,12 @@ program
   .option("-p, --port <port>", "Webhook server port", "3100")
   .option("--no-cli", "Telegram only, no CLI input")
   .action(servePersona)
+
+program
+  .command("deploy <name>")
+  .description("Build and deploy persona as a Docker container")
+  .option("--webhook-url <url>", "External webhook URL for Telegram")
+  .option("-p, --port <port>", "Container port", "3100")
+  .action(deployPersona)
 
 program.parse()

@@ -1,0 +1,28 @@
+services:
+  persona:
+    build: .
+    command: ["serve", "${PERSONA_NAME:-default}", "--no-cli", "--port", "3100"]
+    volumes:
+      - persona-data:/home/persona/.persona-engine
+    ports:
+      - "3100:3100"
+    environment:
+      - PERSONA_ENGINE_CONTAINERIZED=true
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - OPENCODE_API_KEY=${OPENCODE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    network_mode: "none"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+volumes:
+  persona-data:

@@ -35,20 +35,26 @@ export async function servePersona(name: string, options: ServeOptions): Promise
   const allowedChatIds = persona.telegram?.allowed_chat_ids
   const server = startWebhookServer(engine, token, port, allowedChatIds)
 
-  // Start tunnel
-  console.log(chalk.dim("Starting tunnel..."))
+  // Resolve public URL: use WEBHOOK_URL env var or start a tunnel
   let tunnelUrl: string
-  try {
-    tunnelUrl = await startTunnel(port)
-  } catch (err) {
-    console.error(chalk.red(`Failed to start tunnel: ${(err as Error).message}`))
-    console.error(chalk.dim("Install cloudflared: brew install cloudflared"))
-    server.close()
-    process.exit(1)
+  const envWebhookUrl = process.env.WEBHOOK_URL
+  if (envWebhookUrl) {
+    tunnelUrl = envWebhookUrl
+    console.log(chalk.green(`Using configured webhook URL: ${tunnelUrl}`))
+  } else {
+    console.log(chalk.dim("Starting tunnel..."))
+    try {
+      tunnelUrl = await startTunnel(port)
+    } catch (err) {
+      console.error(chalk.red(`Failed to start tunnel: ${(err as Error).message}`))
+      console.error(chalk.dim("Install cloudflared: brew install cloudflared"))
+      server.close()
+      process.exit(1)
+    }
+    console.log(chalk.green(`Tunnel active: ${tunnelUrl}`))
   }
 
   const webhookUrl = `${tunnelUrl}/webhook/${name}`
-  console.log(chalk.green(`Tunnel active: ${tunnelUrl}`))
 
   // Register webhook with Telegram
   try {

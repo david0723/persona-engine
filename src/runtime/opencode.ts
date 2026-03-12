@@ -1,4 +1,4 @@
-import { execSync, spawn } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { ensureContainer, execInContainer, execInContainerStreaming } from "./container.js"
@@ -17,8 +17,8 @@ export interface OpenCodeRunOptions {
   title?: string
 }
 
-function buildArgs(options: OpenCodeRunOptions, bin: string): string[] {
-  const args = [bin, "run"]
+function buildArgs(options: OpenCodeRunOptions): string[] {
+  const args = ["run"]
 
   if (options.dir) args.push("--dir", options.dir)
   if (options.session) args.push("--session", options.session)
@@ -38,16 +38,14 @@ function useContainer(persona: PersonaDefinition): boolean {
 export function openCodeRun(options: OpenCodeRunOptions): string {
   if (useContainer(options.persona)) {
     ensureContainer(options.persona)
-    const args = buildArgs(
-      { ...options, dir: "/home/persona/data" },
-      OPENCODE_BIN_CONTAINER,
-    )
-    return execInContainer(options.persona, args)
+    const bin = OPENCODE_BIN_CONTAINER
+    const args = buildArgs({ ...options, dir: "/home/persona/data" })
+    return execInContainer(options.persona, [bin, ...args])
   }
 
-  const args = buildArgs(options, OPENCODE_BIN)
+  const args = buildArgs(options)
 
-  return execSync(args.map(a => `"${a.replace(/"/g, '\\"')}"`).join(" "), {
+  return execFileSync(OPENCODE_BIN, args, {
     encoding: "utf-8",
     timeout: 300000,
     maxBuffer: 1024 * 1024 * 10,
@@ -59,19 +57,17 @@ export function openCodeRun(options: OpenCodeRunOptions): string {
 export function openCodeRunStreaming(options: OpenCodeRunOptions): Promise<string> {
   if (useContainer(options.persona)) {
     ensureContainer(options.persona)
-    const args = buildArgs(
-      { ...options, dir: "/home/persona/data" },
-      OPENCODE_BIN_CONTAINER,
-    )
-    return execInContainerStreaming(options.persona, args)
+    const bin = OPENCODE_BIN_CONTAINER
+    const args = buildArgs({ ...options, dir: "/home/persona/data" })
+    return execInContainerStreaming(options.persona, [bin, ...args])
   }
 
   return new Promise((resolve, reject) => {
-    const args = buildArgs(options, OPENCODE_BIN).slice(1) // remove bin from args
+    const args = buildArgs(options)
 
     const child = spawn(OPENCODE_BIN, args, {
       cwd: options.dir ?? homedir(),
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
     })
 
     let output = ""

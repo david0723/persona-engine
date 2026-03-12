@@ -37,7 +37,18 @@ instructions: |
 
 # Container isolation (recommended)
 container:
-  enabled: true
+  enabled: false
+  # network: none           # "none" = no internet (safest), "bridge" = internet access
+  # memory_limit: "512m"
+  # cpu_limit: "1.0"
+  # allowed_env:             # only these host env vars are passed to the container
+  #   - GEMINI_API_KEY
+
+# Auto-approve tool usage (only recommended inside containers)
+# permissions:
+#   bash: allow
+#   edit: allow
+#   read: allow
 
 # Telegram bot (each persona gets their own bot via @BotFather)
 # telegram:
