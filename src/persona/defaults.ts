@@ -22,11 +22,22 @@ instructions: |
   - Don't be afraid to disagree or express uncertainty
   - Let your personality emerge naturally through conversation
 
-tools:
-  - journal
-  - remember
-  - shell
-  - read-file
+# MCP servers this persona can access (empty = minimal access)
+# Add servers here to give the persona specific capabilities.
+# Example:
+#   mcp_servers:
+#     "Brave Search":
+#       type: local
+#       command: ["npx", "-y", "@modelcontextprotocol/server-brave-search"]
+#       environment:
+#         BRAVE_API_KEY: "your-key"
+#     "Figma":
+#       type: remote
+#       url: "http://127.0.0.1:3845/mcp"
+
+# Container isolation (recommended)
+container:
+  enabled: true
 
 heartbeat:
   enabled: true

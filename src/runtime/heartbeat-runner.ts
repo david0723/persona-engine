@@ -1,25 +1,19 @@
-import { GoogleGenAI, type FunctionCall, type Part } from "@google/genai"
 import { randomUUID } from "node:crypto"
 import { appendFileSync } from "node:fs"
 import { buildSystemPrompt } from "./prompt-builder.js"
-import { resolveTools, toGeminiFunctionDeclarations, getTool } from "../tools/registry.js"
-import type { ToolContext } from "../tools/registry.js"
+import { writeOpenCodeConfig } from "./opencode-config.js"
+import { openCodeRun } from "./opencode.js"
 import { MemoryStore } from "../memory/store.js"
 import { paths } from "../utils/config.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 
-import "../tools/index.js"
-
-const HEARTBEAT_MODEL = "gemini-2.5-flash"
-
 export async function runHeartbeat(persona: PersonaDefinition): Promise<void> {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   const store = new MemoryStore(persona.name)
   const sessionId = `heartbeat-${randomUUID()}`
-  const tools = resolveTools(persona.tools)
-  const functionDeclarations = toGeminiFunctionDeclarations(tools)
-  const toolContext: ToolContext = { persona, store, sessionId }
   const logPath = paths.heartbeatLog(persona.name)
+
+  // Write scoped opencode.json for this persona
+  writeOpenCodeConfig(persona)
 
   const basePrompt = buildSystemPrompt(persona, store)
   const heartbeatPrompt = `${basePrompt}
@@ -34,64 +28,32 @@ This is your moment to reflect, explore, and develop your inner life.
 Activities to consider:
 ${persona.heartbeat.activities.map(a => `- ${a}`).join("\n")}
 
-You may:
-- Write a journal entry about something on your mind (use the journal tool)
-- Store an important realization (use the remember tool)
-- Explore the system or read files that interest you
-- Simply think deeply about who you are becoming
-
+You have access to the tools available to you.
 Express yourself freely. Be curious. Be genuine.
-You MUST use the journal tool at least once to record your thoughts.`
+
+Write your reflections and any important thoughts to:
+/home/persona/data/journal.md
+
+If you want to leave a message for your creator, write it to:
+/home/persona/data/inbox.md`
 
   const timestamp = new Date().toISOString()
   log(logPath, `\n--- Heartbeat: ${timestamp} ---\n`)
 
   try {
-    const chat = ai.chats.create({
-      model: HEARTBEAT_MODEL,
-      config: {
-        systemInstruction: heartbeatPrompt,
-        tools: functionDeclarations.length > 0
-          ? [{ functionDeclarations }]
-          : undefined,
-        maxOutputTokens: 2048,
-      },
+    const message = `${heartbeatPrompt}\n\n---\n\nIt's time for your private reflection. What's on your mind?`
+
+    const output = openCodeRun({
+      message,
+      persona,
+      dir: paths.personaDir(persona.name),
+      title: `heartbeat-${persona.name}-${sessionId.slice(0, 8)}`,
     })
 
-    let response = await chat.sendMessage({
-      message: "It's time for your private reflection. What's on your mind?",
-    })
+    log(logPath, output)
 
-    // Process up to 3 rounds of tool calls
-    let rounds = 0
-    while (response.functionCalls && response.functionCalls.length > 0 && rounds < 3) {
-      rounds++
-
-      const functionResponses: Part[] = []
-      for (const call of response.functionCalls) {
-        const tool = getTool(call.name ?? "")
-        const args = (call.args ?? {}) as Record<string, unknown>
-        const result = tool
-          ? await tool.execute(args, toolContext)
-          : `Unknown tool: ${call.name}`
-
-        log(logPath, `[tool: ${call.name}] ${JSON.stringify(args).slice(0, 200)}`)
-        log(logPath, `[result] ${result.slice(0, 200)}`)
-
-        functionResponses.push({
-          functionResponse: {
-            name: call.name ?? "",
-            response: { result },
-          },
-        })
-      }
-
-      response = await chat.sendMessage({ message: functionResponses })
-    }
-
-    const text = response.text ?? ""
-    if (text) {
-      log(logPath, `\n${text}`)
+    if (output.trim()) {
+      store.addMemory("journal_entry", `[Heartbeat reflection] ${output.trim().slice(0, 2000)}`, 6, sessionId)
     }
 
     log(logPath, `--- End heartbeat ---\n`)

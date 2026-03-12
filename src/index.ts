@@ -1,5 +1,12 @@
 #!/usr/bin/env node
 
+import { config } from "dotenv"
+import { paths } from "./utils/config.js"
+import { join } from "node:path"
+
+// Load .env from ~/.persona-engine/ so it works from any directory
+config({ path: join(paths.home, ".env") })
+
 import { Command } from "commander"
 import { createPersona } from "./commands/create.js"
 import { listPersonas } from "./commands/list.js"

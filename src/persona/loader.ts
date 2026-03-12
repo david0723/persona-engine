@@ -32,7 +32,7 @@ function validatePersona(data: Record<string, unknown>): PersonaDefinition {
 
   if (typeof data.backstory !== "string") errors.push("backstory must be a string")
   if (typeof data.instructions !== "string") errors.push("instructions must be a string")
-  if (!Array.isArray(data.tools)) errors.push("tools must be an array")
+  // mcp_servers and container are optional, no validation needed
 
   const heartbeat = data.heartbeat as Record<string, unknown> | undefined
   if (!heartbeat || typeof heartbeat !== "object") {
