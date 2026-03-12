@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline"
 import chalk from "chalk"
 import { ConversationEngine, type ConversationEvent } from "./engine.js"
-import { writeLine, writeUserPrompt, writeSystem } from "../utils/stream.js"
+import { writeLine, writeUserPrompt, writeSystem, StatusLine } from "../utils/stream.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 
 export async function startChat(persona: PersonaDefinition): Promise<void> {
@@ -27,7 +27,13 @@ export async function runCliAdapter(engine: ConversationEngine): Promise<void> {
     terminal: false,
   })
 
+  const status = new StatusLine()
+
+  engine.on("thinking", () => status.show("Thinking"))
+  engine.on("responding", () => status.clear())
+
   const cleanup = async () => {
+    status.clear()
     writeSystem("\n\nSaving memories...")
     await engine.shutdown()
     writeSystem("Session summarized. Goodbye.\n")
@@ -69,6 +75,7 @@ export async function runCliAdapter(engine: ConversationEngine): Promise<void> {
       writeLine()
       await engine.handleMessage(userInput, { type: "cli" })
     } catch (err) {
+      status.clear()
       writeSystem(`Error: ${(err as Error).message}`)
     }
 

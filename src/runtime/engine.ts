@@ -99,9 +99,12 @@ export class ConversationEngine extends EventEmitter {
     }
 
     // Use streaming for CLI, non-streaming for Telegram
+    this.emit("thinking", { source })
     let output: string
     if (source.type === "cli") {
-      output = await openCodeRunStreaming(runOptions)
+      output = await openCodeRunStreaming(runOptions, () => {
+        this.emit("responding", { source })
+      })
     } else {
       output = openCodeRun(runOptions)
     }

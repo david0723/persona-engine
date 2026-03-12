@@ -54,7 +54,7 @@ export function openCodeRun(options: OpenCodeRunOptions): string {
   })
 }
 
-export function openCodeRunStreaming(options: OpenCodeRunOptions): Promise<string> {
+export function openCodeRunStreaming(options: OpenCodeRunOptions, onFirstChunk?: () => void): Promise<string> {
   if (useContainer(options.persona)) {
     ensureContainer(options.persona)
     const bin = OPENCODE_BIN_CONTAINER
@@ -71,9 +71,14 @@ export function openCodeRunStreaming(options: OpenCodeRunOptions): Promise<strin
     })
 
     let output = ""
+    let firstChunkFired = false
 
     child.stdout.on("data", (data: Buffer) => {
       const text = data.toString()
+      if (!firstChunkFired) {
+        firstChunkFired = true
+        onFirstChunk?.()
+      }
       output += text
       process.stdout.write(text)
     })
