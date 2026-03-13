@@ -1,5 +1,4 @@
 import { execSync, spawn, type ChildProcess } from "node:child_process"
-import { createConnection } from "node:net"
 import chalk from "chalk"
 import { loadPersona } from "../persona/loader.js"
 import { isContainerized, isDockerAvailable } from "../runtime/container.js"
@@ -120,17 +119,7 @@ async function startContainerMode(
     return
   }
 
-  // Wait for IPC TCP port
   const ipcPort = IPC_TCP_PORT
-  console.log(chalk.dim("Waiting for engine to start..."))
-  try {
-    await waitForTcp(ipcPort)
-  } catch {
-    console.error(chalk.red("Engine failed to start within timeout."))
-    console.error(chalk.dim("Check logs: docker compose " + composeArgs.join(" ") + " logs engine"))
-    shutdown(composeArgs, projectDir, tunnelConfigDir)
-    process.exit(1)
-  }
 
   console.log(chalk.bold(`\n${persona.name} is live.\n`))
 
@@ -153,7 +142,7 @@ async function startContainerMode(
 
   // CLI mode or log tailing
   if (options.cli !== false) {
-    connectToPersona(name, { tcpPort: ipcPort })
+    connectToPersona(name, { tcpPort: ipcPort, retryMs: 1000, timeoutMs: 60_000 })
   } else {
     console.log(chalk.dim("Running in Telegram-only mode. Press Ctrl+C to stop."))
     logsProcess = spawn(
@@ -171,34 +160,6 @@ async function startLocalMode(
 ): Promise<void> {
   const { startChat } = await import("../runtime/conversation.js")
   await startChat(persona)
-}
-
-/**
- * Wait for the IPC TCP port to become connectable (engine is ready).
- */
-function waitForTcp(port: number, timeoutMs = 60000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const deadline = setTimeout(() => {
-      clearInterval(poll)
-      reject(new Error("Timed out waiting for engine TCP port"))
-    }, timeoutMs)
-
-    const tryConnect = () => {
-      const sock = createConnection({ port, host: "127.0.0.1" })
-      sock.on("connect", () => {
-        sock.destroy()
-        clearTimeout(deadline)
-        clearInterval(poll)
-        resolve()
-      })
-      sock.on("error", () => {
-        sock.destroy()
-      })
-    }
-
-    const poll = setInterval(tryConnect, 1000)
-    tryConnect() // try immediately
-  })
 }
 
 /**

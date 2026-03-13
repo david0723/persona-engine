@@ -51,6 +51,9 @@ export class IpcServer {
     // Also listen on TCP when a port is specified (container mode)
     if (options?.tcpPort) {
       this.tcpServer = createServer((socket) => this.onConnect(socket))
+      this.tcpServer.on("error", (err) => {
+        console.error(`IPC TCP server error: ${(err as Error).message}`)
+      })
       this.tcpServer.listen(options.tcpPort, "0.0.0.0")
     }
 

@@ -73,4 +73,7 @@ program
   .command("chat <name>", { hidden: true })
   .action((name: string) => startPersona(name, {}))
 
-program.parse()
+program.parseAsync().catch((err) => {
+  console.error((err as Error).message)
+  process.exit(1)
+})

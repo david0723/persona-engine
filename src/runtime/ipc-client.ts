@@ -1,5 +1,5 @@
-import { createConnection } from "node:net"
-import { createInterface } from "node:readline"
+import { createConnection, type Socket } from "node:net"
+import { createInterface, type Interface as ReadlineInterface } from "node:readline"
 import chalk from "chalk"
 import { socketPath } from "./ipc-server.js"
 import {
@@ -13,63 +13,145 @@ import type { IpcEvent } from "./ipc-server.js"
 export interface ConnectOptions {
   /** Connect via TCP port instead of Unix socket. */
   tcpPort?: number
+  /** Retry interval in ms on ECONNREFUSED (0 = no retry). */
+  retryMs?: number
+  /** Total timeout for initial connection in ms. */
+  timeoutMs?: number
 }
+
+const MAX_EARLY_CLOSE_RETRIES = 3
+const EARLY_CLOSE_WINDOW_MS = 2000
+const debug = process.env.DEBUG ? (...args: unknown[]) => console.error(chalk.dim("[ipc-client]"), ...args) : () => {}
 
 export function connectToPersona(personaName: string, options?: ConnectOptions): void {
   const status = new StatusLine()
+  const retryMs = options?.retryMs ?? 0
+  const timeoutMs = options?.timeoutMs ?? 0
+  const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : 0
 
-  const socket = options?.tcpPort
-    ? createConnection({ port: options.tcpPort, host: "127.0.0.1" })
-    : createConnection(socketPath(personaName))
+  let earlyCloseRetries = 0
+  let rl: ReadlineInterface | null = null
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  let deadlineTimer: ReturnType<typeof setTimeout> | null = null
+  let waitingMessageShown = false
 
-  socket.on("error", (err) => {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      console.error(
-        chalk.red(`No running instance of "${personaName}" found.`),
-      )
-      console.error(
-        chalk.dim(`Start it first: persona start ${personaName}`),
-      )
-    } else if ((err as NodeJS.ErrnoException).code === "ECONNREFUSED") {
-      console.error(
-        chalk.red(`Connection refused. "${personaName}" may not be running.`),
-      )
-    } else {
-      console.error(chalk.red(`Connection error: ${err.message}`))
-    }
-    process.exit(1)
-  })
+  if (deadline > 0) {
+    deadlineTimer = setTimeout(() => {
+      console.error(chalk.red("Engine failed to start within timeout."))
+      process.exit(1)
+    }, timeoutMs)
+  }
 
-  socket.on("connect", () => {
-    writeSystem(`Attached to ${personaName}. Press Ctrl+C to detach.\n`)
-    startInput()
-  })
+  function connect(): void {
+    let hasReceivedData = false
+    let connectTime = 0
 
-  let buffer = ""
-  socket.on("data", (data) => {
-    buffer += data.toString()
-    const lines = buffer.split("\n")
-    buffer = lines.pop() ?? ""
+    const socket = options?.tcpPort
+      ? createConnection({ port: options.tcpPort, host: "127.0.0.1" })
+      : createConnection(socketPath(personaName))
 
-    for (const line of lines) {
-      if (!line.trim()) continue
-      try {
-        const event = JSON.parse(line) as IpcEvent
-        handleEvent(event, personaName, status)
-      } catch {
-        // Ignore malformed JSON
+    socket.on("error", (err) => {
+      const code = (err as NodeJS.ErrnoException).code
+
+      if ((code === "ECONNREFUSED" || code === "ECONNRESET") && retryMs > 0) {
+        if (deadline > 0 && Date.now() >= deadline) {
+          console.error(chalk.red("Engine failed to start within timeout."))
+          process.exit(1)
+        }
+        if (!waitingMessageShown) {
+          writeSystem("Waiting for engine to start...")
+          waitingMessageShown = true
+        }
+        debug(`${code}, retrying in ${retryMs}ms`)
+        retryTimer = setTimeout(connect, retryMs)
+        return
       }
+
+      if (code === "ENOENT") {
+        console.error(
+          chalk.red(`No running instance of "${personaName}" found.`),
+        )
+        console.error(
+          chalk.dim(`Start it first: persona start ${personaName}`),
+        )
+      } else if (code === "ECONNREFUSED") {
+        console.error(
+          chalk.red(`Connection refused. "${personaName}" may not be running.`),
+        )
+      } else {
+        console.error(chalk.red(`Connection error: ${err.message}`))
+      }
+      process.exit(1)
+    })
+
+    socket.on("connect", () => {
+      connectTime = Date.now()
+      debug("connected")
+
+      // Clear deadline timer on successful connection
+      if (deadlineTimer) {
+        clearTimeout(deadlineTimer)
+        deadlineTimer = null
+      }
+
+      writeSystem(`Attached to ${personaName}. Press Ctrl+C to detach.\n`)
+      startInput(socket)
+    })
+
+    let buffer = ""
+    socket.on("data", (data) => {
+      hasReceivedData = true
+      buffer += data.toString()
+      const lines = buffer.split("\n")
+      buffer = lines.pop() ?? ""
+
+      for (const line of lines) {
+        if (!line.trim()) continue
+        try {
+          const event = JSON.parse(line) as IpcEvent
+          handleEvent(event, personaName, status)
+        } catch {
+          // Ignore malformed JSON
+        }
+      }
+    })
+
+    socket.on("close", (hadError) => {
+      const elapsed = connectTime > 0 ? Date.now() - connectTime : 0
+      debug(`close: hadError=${hadError}, elapsed=${elapsed}ms, hasData=${hasReceivedData}`)
+
+      // Early close with no data: likely a stale RST from probe connection
+      if (connectTime > 0 && elapsed < EARLY_CLOSE_WINDOW_MS && !hasReceivedData) {
+        if (earlyCloseRetries < MAX_EARLY_CLOSE_RETRIES) {
+          earlyCloseRetries++
+          debug(`early close without data, reconnecting (attempt ${earlyCloseRetries}/${MAX_EARLY_CLOSE_RETRIES})`)
+          writeSystem(`Connection dropped, reconnecting (${earlyCloseRetries}/${MAX_EARLY_CLOSE_RETRIES})...`)
+
+          // Clean up readline before retry
+          if (rl) {
+            rl.close()
+            rl = null
+          }
+
+          retryTimer = setTimeout(connect, retryMs || 500)
+          return
+        }
+      }
+
+      status.clear()
+      writeSystem("\nDisconnected.")
+      process.exit(0)
+    })
+  }
+
+  function startInput(socket: Socket): void {
+    // Clean up previous readline if reconnecting
+    if (rl) {
+      rl.close()
+      rl = null
     }
-  })
 
-  socket.on("close", () => {
-    status.clear()
-    writeSystem("\nDisconnected.")
-    process.exit(0)
-  })
-
-  function startInput(): void {
-    const rl = createInterface({
+    rl = createInterface({
       input: process.stdin,
       output: process.stdout,
       terminal: process.stdin.isTTY ?? false,
@@ -83,7 +165,7 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
         const msg = JSON.stringify({ type: "message", text: line }) + "\n"
         socket.write(msg)
       }
-      rl.prompt()
+      rl?.prompt()
     })
 
     rl.on("close", () => {
@@ -98,6 +180,8 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
       process.exit(0)
     })
   }
+
+  connect()
 }
 
 function handleEvent(

@@ -7,6 +7,14 @@ import { startWebhookServer } from "../telegram/webhook.js"
 import { setWebhook, deleteWebhook } from "../telegram/bot.js"
 import { runHeartbeat } from "./heartbeat-runner.js"
 
+process.on("uncaughtException", (err) => {
+  console.error(`Uncaught exception: ${err.message}`)
+  console.error(err.stack)
+})
+process.on("unhandledRejection", (reason) => {
+  console.error(`Unhandled rejection: ${reason}`)
+})
+
 export async function startContainerServer(name: string, port: number): Promise<void> {
   const persona = loadPersona(name)
   const engine = new ConversationEngine(persona)
