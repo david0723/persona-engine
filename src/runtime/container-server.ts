@@ -1,11 +1,18 @@
 import type { Server } from "node:http"
+import type { ChildProcess } from "node:child_process"
+import { spawn } from "node:child_process"
 import chalk from "chalk"
 import { loadPersona } from "../persona/loader.js"
 import { ConversationEngine } from "./engine.js"
+import { writeInstructionsFile } from "./opencode-config.js"
 import { IpcServer, IPC_TCP_PORT } from "./ipc-server.js"
 import { startWebhookServer } from "../telegram/webhook.js"
 import { setWebhook, deleteWebhook } from "../telegram/bot.js"
 import { runHeartbeat } from "./heartbeat-runner.js"
+import { paths } from "../utils/config.js"
+
+const OPENCODE_BIN_CONTAINER = "/home/persona/.opencode/bin/opencode"
+export const OPENCODE_WEB_PORT = 3102
 
 process.on("uncaughtException", (err) => {
   console.error(`Uncaught exception: ${err.message}`)
@@ -15,13 +22,50 @@ process.on("unhandledRejection", (reason) => {
   console.error(`Unhandled rejection: ${reason}`)
 })
 
+function startOpenCodeServer(name: string, webPort: number, model?: string): ChildProcess {
+  const dir = paths.personaDir(name)
+  const args = ["serve", "--port", String(webPort), "--hostname", "0.0.0.0", "--dir", dir]
+  if (model) args.push("--model", model)
+
+  const child = spawn(OPENCODE_BIN_CONTAINER, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+
+  child.stdout.on("data", (data: Buffer) => {
+    process.stdout.write(chalk.dim(`[opencode] ${data.toString()}`))
+  })
+  child.stderr.on("data", (data: Buffer) => {
+    const text = data.toString().trim()
+    if (text) console.error(chalk.dim(`[opencode] ${text}`))
+  })
+  child.on("exit", (code) => {
+    console.error(chalk.yellow(`opencode serve exited with code ${code}`))
+  })
+
+  return child
+}
+
 export async function startContainerServer(name: string, port: number): Promise<void> {
   const persona = loadPersona(name)
   const engine = new ConversationEngine(persona)
   const ipc = new IpcServer(engine, name)
 
+  // Write INSTRUCTIONS.md so opencode serve picks up the persona's system prompt
+  writeInstructionsFile(persona, engine.memoryStore)
+
   ipc.start({ tcpPort: IPC_TCP_PORT })
   console.log(chalk.green(`IPC ready for ${name} (socket + tcp:${IPC_TCP_PORT})`))
+
+  // Start opencode serve when web mode is enabled
+  const webMode = process.env.PERSONA_WEB === "true"
+  let openCodeProcess: ChildProcess | undefined
+
+  if (webMode) {
+    openCodeProcess = startOpenCodeServer(name, OPENCODE_WEB_PORT, persona.model)
+    const attachUrl = `http://localhost:${OPENCODE_WEB_PORT}`
+    engine.attachUrl = attachUrl
+    console.log(chalk.green(`opencode serve started on port ${OPENCODE_WEB_PORT}`))
+  }
 
   // Telegram webhook (optional)
   const token = persona.telegram?.bot_token
@@ -56,6 +100,10 @@ export async function startContainerServer(name: string, port: number): Promise<
     console.log(chalk.dim("\nShutting down container server..."))
 
     if (heartbeatInterval) clearInterval(heartbeatInterval)
+
+    if (openCodeProcess && !openCodeProcess.killed) {
+      openCodeProcess.kill("SIGTERM")
+    }
 
     if (token && webhookUrl) {
       await deleteWebhook(token).catch(() => {})

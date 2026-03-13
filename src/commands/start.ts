@@ -2,7 +2,7 @@ import { execSync, spawn, type ChildProcess } from "node:child_process"
 import chalk from "chalk"
 import { loadPersona } from "../persona/loader.js"
 import { isContainerized, isDockerAvailable } from "../runtime/container.js"
-import { generateComposeFile, getProjectDir, getIpcHostPort } from "../runtime/compose-generator.js"
+import { generateComposeFile, getProjectDir, getIpcHostPort, getWebHostPort } from "../runtime/compose-generator.js"
 import { cleanupTunnelConfig } from "../telegram/tunnel.js"
 import { connectToPersona } from "../runtime/ipc-client.js"
 import { reconcileTelegram } from "../infra/reconciler.js"
@@ -12,6 +12,7 @@ interface StartOptions {
   cli?: boolean      // --no-cli sets to false
   detached?: boolean  // -d flag
   verbose?: boolean   // -v flag
+  web?: boolean       // -w flag, expose opencode web UI
 }
 
 export async function startPersona(name: string, options: StartOptions): Promise<void> {
@@ -83,6 +84,7 @@ async function startContainerMode(
     tunnelConfigDir,
     webhookUrl,
     detached: options.detached,
+    web: options.web,
   })
 
   const projectDir = getProjectDir()
@@ -138,8 +140,25 @@ async function startContainerMode(
   process.on("SIGINT", cleanup)
   process.on("SIGTERM", cleanup)
 
-  // CLI mode or log tailing
-  if (options.cli !== false) {
+  // Web mode: print URL and tail logs instead of attaching CLI
+  if (options.web) {
+    // Give the container a moment to map ports
+    await new Promise(r => setTimeout(r, 3000))
+    try {
+      const webPort = getWebHostPort(name)
+      console.log(chalk.green(`Web UI: http://localhost:${webPort}`))
+    } catch {
+      console.log(chalk.yellow("Could not determine web UI port. Check 'docker ps' for the mapped port."))
+    }
+    console.log(chalk.dim("Web mode active. Press Ctrl+C to stop."))
+    logsProcess = spawn(
+      "docker",
+      ["compose", ...composeArgs, "logs", "-f"],
+      { cwd: projectDir, stdio: "inherit" },
+    )
+    await new Promise(() => {})
+  } else if (options.cli !== false) {
+    // CLI mode
     const ipcPort = getIpcHostPort(name)
     connectToPersona(name, { tcpPort: ipcPort, retryMs: 1000, timeoutMs: 60_000, verbose: options.verbose })
   } else {

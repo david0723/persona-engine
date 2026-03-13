@@ -1,10 +1,13 @@
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { paths, ensurePersonaDir } from "../utils/config.js"
+import { buildSystemPrompt } from "./prompt-builder.js"
 import type { PersonaDefinition } from "../persona/schema.js"
+import type { MemoryStore } from "../memory/store.js"
 
 interface OpenCodeConfig {
   $schema: string
+  instructions?: string[]
   mcp?: Record<string, unknown>
   permission?: Record<string, string>
 }
@@ -15,6 +18,7 @@ export function writeOpenCodeConfig(persona: PersonaDefinition): string {
 
   const config: OpenCodeConfig = {
     $schema: "https://opencode.ai/config.json",
+    instructions: ["INSTRUCTIONS.md"],
   }
 
   if (persona.mcp_servers && Object.keys(persona.mcp_servers).length > 0) {
@@ -51,4 +55,14 @@ export function writeOpenCodeConfig(persona: PersonaDefinition): string {
 
   writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8")
   return configPath
+}
+
+/**
+ * Write the persona's system prompt to INSTRUCTIONS.md in the persona data dir.
+ * opencode picks this up via the `instructions` field in opencode.json.
+ */
+export function writeInstructionsFile(persona: PersonaDefinition, store: MemoryStore): void {
+  const prompt = buildSystemPrompt(persona, store)
+  const instrPath = join(paths.personaDir(persona.name), "INSTRUCTIONS.md")
+  writeFileSync(instrPath, prompt, "utf-8")
 }

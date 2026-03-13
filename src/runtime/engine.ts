@@ -76,12 +76,25 @@ export class ConversationEngine extends EventEmitter {
   private isFirstMessage = true
   private queue: QueuedMessage[] = []
   private processing = false
+  private _attachUrl?: string
 
   constructor(public readonly persona: PersonaDefinition) {
     super()
     this.store = new MemoryStore(persona.name)
     this.sessionId = randomUUID()
     writeOpenCodeConfig(persona)
+  }
+
+  get attachUrl(): string | undefined {
+    return this._attachUrl
+  }
+
+  set attachUrl(url: string | undefined) {
+    this._attachUrl = url
+  }
+
+  get memoryStore(): MemoryStore {
+    return this.store
   }
 
   async handleMessage(text: string, source: MessageSource): Promise<string> {
@@ -163,6 +176,7 @@ export class ConversationEngine extends EventEmitter {
       continueSession: !this.isFirstMessage,
       title: `persona-${this.persona.name}`,
       model: this.persona.model,
+      attachUrl: this._attachUrl,
     }
 
     // Always use streaming so we can emit activity events

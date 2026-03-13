@@ -34,6 +34,7 @@ program
   .option("--no-cli", "No CLI input (headless/Telegram only)")
   .option("-d, --detached", "Run in background, don't attach CLI")
   .option("-v, --verbose", "Show all engine logs including stderr")
+  .option("-w, --web", "Expose opencode web UI")
   .action(startPersona)
 
 program

@@ -5,6 +5,7 @@ import { execSync } from "node:child_process"
 import { stringify } from "yaml"
 import { paths, loadPersonaEnv } from "../utils/config.js"
 import { IPC_TCP_PORT } from "./ipc-server.js"
+import { OPENCODE_WEB_PORT } from "./container-server.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 
 export interface ComposeOptions {
@@ -14,6 +15,7 @@ export interface ComposeOptions {
   tunnelConfigDir?: string  // host path to tunnel config files
   webhookUrl?: string       // public URL for Telegram webhook registration
   detached?: boolean        // skip IPC socket setup hints
+  web?: boolean             // expose opencode web UI port
 }
 
 interface ComposeService {
@@ -32,7 +34,7 @@ const PROJECT_DIR = join(import.meta.dirname, "..", "..")
  * Returns the path to the generated compose file.
  */
 export function generateComposeFile(opts: ComposeOptions): string {
-  const { name, persona, port, tunnelConfigDir, webhookUrl } = opts
+  const { name, persona, port, tunnelConfigDir, webhookUrl, web } = opts
   const personaDir = paths.personaDir(name)
 
   // Build environment variables
@@ -43,6 +45,10 @@ export function generateComposeFile(opts: ComposeOptions): string {
 
   if (webhookUrl) {
     environment.push(`WEBHOOK_URL=${webhookUrl}`)
+  }
+
+  if (web) {
+    environment.push("PERSONA_WEB=true")
   }
 
   // Inject all vars from persona's .env
@@ -70,7 +76,10 @@ export function generateComposeFile(opts: ComposeOptions): string {
       ...(selfUpdate?.enabled ? [`persona-workspace-${name}:/home/persona/workspace`] : []),
       ...(containerConfig.docker_socket ? ["/var/run/docker.sock:/var/run/docker.sock"] : []),
     ],
-    ports: [`0:${IPC_TCP_PORT}`],
+    ports: [
+      `0:${IPC_TCP_PORT}`,
+      ...(web ? [`0:${OPENCODE_WEB_PORT}`] : []),
+    ],
     environment,
     // Engine uses bridge network (shared with tunnel), not "none"
     networks: [`persona-${name}`],
@@ -142,19 +151,33 @@ export function getProjectDir(): string {
 }
 
 /**
- * Query Docker for the dynamically assigned host port mapped to the IPC port.
+ * Query Docker for the dynamically assigned host port mapped to a container port.
  */
-export function getIpcHostPort(name: string): number {
+function getHostPort(name: string, containerPort: number): number {
   const containerName = `persona-${name}-engine-1`
   const output = execSync(
-    `docker port ${containerName} ${IPC_TCP_PORT}`,
+    `docker port ${containerName} ${containerPort}`,
     { encoding: "utf-8" },
   ).trim()
   // Output is like "0.0.0.0:32789" or ":::32789" (one per line)
   const firstLine = output.split("\n")[0]
   const port = parseInt(firstLine.split(":").pop() ?? "", 10)
   if (isNaN(port)) {
-    throw new Error(`Could not determine IPC host port for ${containerName}: ${output}`)
+    throw new Error(`Could not determine host port for ${containerName}:${containerPort}: ${output}`)
   }
   return port
+}
+
+/**
+ * Query Docker for the dynamically assigned host port mapped to the IPC port.
+ */
+export function getIpcHostPort(name: string): number {
+  return getHostPort(name, IPC_TCP_PORT)
+}
+
+/**
+ * Query Docker for the dynamically assigned host port mapped to the opencode web port.
+ */
+export function getWebHostPort(name: string): number {
+  return getHostPort(name, OPENCODE_WEB_PORT)
 }

@@ -22,6 +22,7 @@ export interface OpenCodeRunOptions {
   continueSession?: boolean
   model?: string
   title?: string
+  attachUrl?: string  // URL of running opencode server to attach to
 }
 
 function buildArgs(options: OpenCodeRunOptions): string[] {
@@ -32,6 +33,7 @@ function buildArgs(options: OpenCodeRunOptions): string[] {
   if (options.continueSession) args.push("--continue")
   if (options.model) args.push("--model", options.model)
   if (options.title) args.push("--title", options.title)
+  if (options.attachUrl) args.push("--attach", options.attachUrl)
 
   args.push(options.message)
 
