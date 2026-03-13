@@ -2,7 +2,7 @@ import type { Server } from "node:http"
 import chalk from "chalk"
 import { loadPersona } from "../persona/loader.js"
 import { ConversationEngine } from "./engine.js"
-import { IpcServer } from "./ipc-server.js"
+import { IpcServer, IPC_TCP_PORT } from "./ipc-server.js"
 import { startWebhookServer } from "../telegram/webhook.js"
 import { setWebhook, deleteWebhook } from "../telegram/bot.js"
 import { runHeartbeat } from "./heartbeat-runner.js"
@@ -12,8 +12,8 @@ export async function startContainerServer(name: string, port: number): Promise<
   const engine = new ConversationEngine(persona)
   const ipc = new IpcServer(engine, name)
 
-  ipc.start()
-  console.log(chalk.green(`IPC socket ready for ${name}`))
+  ipc.start({ tcpPort: IPC_TCP_PORT })
+  console.log(chalk.green(`IPC ready for ${name} (socket + tcp:${IPC_TCP_PORT})`))
 
   // Telegram webhook (optional)
   const token = persona.telegram?.bot_token

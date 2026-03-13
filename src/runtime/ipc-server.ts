@@ -21,8 +21,12 @@ export function socketPath(personaName: string): string {
   return `${paths.personaDir(personaName)}/engine.sock`
 }
 
+/** Default TCP port for IPC when running in a container. */
+export const IPC_TCP_PORT = 3101
+
 export class IpcServer {
   private server: Server | null = null
+  private tcpServer: Server | null = null
   private clients = new Set<Socket>()
   private sockPath: string
 
@@ -33,7 +37,7 @@ export class IpcServer {
     this.sockPath = socketPath(personaName)
   }
 
-  start(): void {
+  start(options?: { tcpPort?: number }): void {
     // Clean up stale socket
     if (existsSync(this.sockPath)) {
       unlinkSync(this.sockPath)
@@ -43,6 +47,12 @@ export class IpcServer {
 
     this.server = createServer((socket) => this.onConnect(socket))
     this.server.listen(this.sockPath)
+
+    // Also listen on TCP when a port is specified (container mode)
+    if (options?.tcpPort) {
+      this.tcpServer = createServer((socket) => this.onConnect(socket))
+      this.tcpServer.listen(options.tcpPort, "0.0.0.0")
+    }
 
     // Wire engine events to broadcast
     this.engine.on("thinking", (ev: { source: MessageSource }) => {
@@ -75,6 +85,11 @@ export class IpcServer {
     if (this.server) {
       this.server.close()
       this.server = null
+    }
+
+    if (this.tcpServer) {
+      this.tcpServer.close()
+      this.tcpServer = null
     }
 
     if (existsSync(this.sockPath)) {

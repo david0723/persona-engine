@@ -11,11 +11,17 @@ import {
 } from "../utils/stream.js"
 import type { IpcEvent } from "./ipc-server.js"
 
-export function connectToPersona(personaName: string): void {
-  const sockPath = socketPath(personaName)
+export interface ConnectOptions {
+  /** Connect via TCP port instead of Unix socket. */
+  tcpPort?: number
+}
+
+export function connectToPersona(personaName: string, options?: ConnectOptions): void {
   const status = new StatusLine()
 
-  const socket = createConnection(sockPath)
+  const socket = options?.tcpPort
+    ? createConnection({ port: options.tcpPort, host: "127.0.0.1" })
+    : createConnection(socketPath(personaName))
 
   socket.on("error", (err) => {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {

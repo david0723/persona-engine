@@ -1,12 +1,12 @@
 import { execSync, spawn, type ChildProcess } from "node:child_process"
-import { existsSync, unwatchFile } from "node:fs"
+import { createConnection } from "node:net"
 import chalk from "chalk"
 import { loadPersona } from "../persona/loader.js"
 import { isContainerized, isDockerAvailable } from "../runtime/container.js"
 import { generateComposeFile, getProjectDir } from "../runtime/compose-generator.js"
 import { cleanupTunnelConfig } from "../telegram/tunnel.js"
 import { connectToPersona } from "../runtime/ipc-client.js"
-import { socketPath } from "../runtime/ipc-server.js"
+import { IPC_TCP_PORT } from "../runtime/ipc-server.js"
 import { reconcileTelegram } from "../infra/reconciler.js"
 
 interface StartOptions {
@@ -120,11 +120,11 @@ async function startContainerMode(
     return
   }
 
-  // Wait for IPC socket
-  const sockPath = socketPath(name)
+  // Wait for IPC TCP port
+  const ipcPort = IPC_TCP_PORT
   console.log(chalk.dim("Waiting for engine to start..."))
   try {
-    await waitForSocket(sockPath)
+    await waitForTcp(ipcPort)
   } catch {
     console.error(chalk.red("Engine failed to start within timeout."))
     console.error(chalk.dim("Check logs: docker compose " + composeArgs.join(" ") + " logs engine"))
@@ -153,7 +153,7 @@ async function startContainerMode(
 
   // CLI mode or log tailing
   if (options.cli !== false) {
-    connectToPersona(name)
+    connectToPersona(name, { tcpPort: ipcPort })
   } else {
     console.log(chalk.dim("Running in Telegram-only mode. Press Ctrl+C to stop."))
     logsProcess = spawn(
@@ -174,28 +174,30 @@ async function startLocalMode(
 }
 
 /**
- * Wait for the IPC socket file to appear (engine is ready).
+ * Wait for the IPC TCP port to become connectable (engine is ready).
  */
-function waitForSocket(sockPath: string, timeoutMs = 60000): Promise<void> {
+function waitForTcp(port: number, timeoutMs = 60000): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (existsSync(sockPath)) {
-      resolve()
-      return
-    }
-
-    const timeout = setTimeout(() => {
-      unwatchFile(sockPath)
-      reject(new Error("Timed out waiting for engine socket"))
+    const deadline = setTimeout(() => {
+      clearInterval(poll)
+      reject(new Error("Timed out waiting for engine TCP port"))
     }, timeoutMs)
 
-    const interval = setInterval(() => {
-      if (existsSync(sockPath)) {
-        clearTimeout(timeout)
-        clearInterval(interval)
-        unwatchFile(sockPath)
+    const tryConnect = () => {
+      const sock = createConnection({ port, host: "127.0.0.1" })
+      sock.on("connect", () => {
+        sock.destroy()
+        clearTimeout(deadline)
+        clearInterval(poll)
         resolve()
-      }
-    }, 1000)
+      })
+      sock.on("error", () => {
+        sock.destroy()
+      })
+    }
+
+    const poll = setInterval(tryConnect, 1000)
+    tryConnect() // try immediately
   })
 }
 

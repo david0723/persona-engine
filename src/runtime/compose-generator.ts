@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { stringify } from "yaml"
 import { paths, loadPersonaEnv } from "../utils/config.js"
+import { IPC_TCP_PORT } from "./ipc-server.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 
 export interface ComposeOptions {
@@ -67,6 +68,7 @@ export function generateComposeFile(opts: ComposeOptions): string {
       `${personaDir}:/home/persona/.persona-engine/personas/${name}`,
       ...(selfUpdate?.enabled ? [`persona-workspace-${name}:/home/persona/workspace`] : []),
     ],
+    ports: [`${IPC_TCP_PORT}:${IPC_TCP_PORT}`],
     environment,
     // Engine uses bridge network (shared with tunnel), not "none"
     networks: [`persona-${name}`],
