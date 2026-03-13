@@ -32,7 +32,7 @@ export async function listPersonas(): Promise<void> {
         : chalk.dim("off")
 
       console.log(`  ${chalk.bold(persona.name)}`)
-      console.log(`    ${chalk.dim(persona.identity.role)}`)
+      console.log(`    ${chalk.dim(persona.identity?.role ?? "no identity")}`)
       console.log(`    Heartbeat: ${heartbeatStatus}  |  Modified: ${lastModified}`)
       console.log()
     } catch {

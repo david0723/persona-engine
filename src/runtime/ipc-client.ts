@@ -119,6 +119,9 @@ function handleEvent(
     case "thinking":
       status.show("Thinking")
       break
+    case "activity":
+      status.show(`Using ${event.tool}`)
+      break
     case "responding":
       status.clear()
       break

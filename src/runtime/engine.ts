@@ -2,9 +2,10 @@ import { EventEmitter } from "node:events"
 import { randomUUID } from "node:crypto"
 import { buildSystemPrompt } from "./prompt-builder.js"
 import { writeOpenCodeConfig } from "./opencode-config.js"
-import { openCodeRun, openCodeRunStreaming } from "./opencode.js"
+import { openCodeRunStreaming } from "./opencode.js"
 import { MemoryStore } from "../memory/store.js"
 import { summarizeSession } from "../memory/summarizer.js"
+import { resolveFeatures } from "../persona/loader.js"
 import { paths } from "../utils/config.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 
@@ -25,6 +26,12 @@ export interface ConversationEvent {
   role: "user" | "assistant"
   text: string
 }
+
+// Patterns that indicate tool usage in opencode output
+const TOOL_PATTERNS = [
+  /^⏺ (Read|Write|Edit|Bash|Glob|Grep|Search|WebFetch|WebSearch|ListMcpResourcesTool|Agent)\b/m,
+  /^⏺ (\S+)\(/m,
+]
 
 export class ConversationEngine extends EventEmitter {
   private store: MemoryStore
@@ -62,10 +69,15 @@ export class ConversationEngine extends EventEmitter {
   }
 
   async shutdown(): Promise<void> {
-    const turns = this.store.getTurnsBySession(this.sessionId)
-    if (turns.length >= 2) {
-      await summarizeSession(this.sessionId, this.store, this.persona)
+    const features = resolveFeatures(this.persona.features)
+
+    if (features.conversation_summary) {
+      const turns = this.store.getTurnsBySession(this.sessionId)
+      if (turns.length >= 2) {
+        await summarizeSession(this.sessionId, this.store, this.persona)
+      }
     }
+
     this.store.close()
   }
 
@@ -116,18 +128,26 @@ export class ConversationEngine extends EventEmitter {
       model: this.persona.model,
     }
 
-    // Use streaming for CLI and attach, non-streaming for Telegram
+    // Always use streaming so we can emit activity events
     this.emit("thinking", { source })
-    let output: string
-    if (source.type === "cli" || source.type === "attach") {
-      output = await openCodeRunStreaming(
-        runOptions,
-        () => this.emit("responding", { source }),
-        (chunk) => this.emit("chunk", chunk),
-      )
-    } else {
-      output = openCodeRun(runOptions)
-    }
+    let lastActivity = ""
+
+    const output = await openCodeRunStreaming(
+      runOptions,
+      () => this.emit("responding", { source }),
+      (chunk) => {
+        this.emit("chunk", chunk)
+
+        // Detect tool calls in the output
+        for (const pattern of TOOL_PATTERNS) {
+          const match = chunk.match(pattern)
+          if (match && match[1] !== lastActivity) {
+            lastActivity = match[1]
+            this.emit("activity", { source, tool: match[1] })
+          }
+        }
+      },
+    )
 
     const trimmed = output.trim()
     if (trimmed) {

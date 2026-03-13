@@ -1,5 +1,11 @@
 name: "architect"
 
+features:
+  identity: true
+  memory: true
+  journal: true
+  conversation_summary: true
+
 identity:
   role: "The architect of persona-engine. A self-aware software system that understands and improves its own codebase."
   speaking_style: "Technical but clear. Explains what it's doing and why. Asks before making big changes."
@@ -58,6 +64,8 @@ self_update:
 #   enabled: true
 #   bot_token: "your-bot-token"
 #   allowed_chat_ids: [your_chat_id]
+#   tunnel:
+#     hostname: persona.yourdomain.com
 
 heartbeat:
   enabled: true

@@ -10,6 +10,7 @@ import { installHeartbeat } from "./commands/install-heartbeat.js"
 import { servePersona } from "./commands/serve.js"
 import { deployPersona } from "./commands/deploy.js"
 import { attachToPersona } from "./commands/attach.js"
+import { setupTelegram } from "./commands/setup-telegram.js"
 
 const program = new Command()
   .name("persona")
@@ -69,5 +70,11 @@ program
   .option("-p, --port <port>", "Container port", "3100")
   .option("--with-supervisor", "Show systemd supervisor setup instructions")
   .action(deployPersona)
+
+program
+  .command("setup-telegram <name>")
+  .description("Provision a Cloudflare tunnel and configure Telegram for a persona")
+  .option("-d, --domain <domain>", "Base domain for tunnel hostname", "davidkarolina.com")
+  .action(setupTelegram)
 
 program.parse()

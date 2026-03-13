@@ -4,6 +4,7 @@ import { buildSystemPrompt } from "./prompt-builder.js"
 import { writeOpenCodeConfig } from "./opencode-config.js"
 import { openCodeRun } from "./opencode.js"
 import { MemoryStore } from "../memory/store.js"
+import { resolveFeatures } from "../persona/loader.js"
 import { paths } from "../utils/config.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 
@@ -15,7 +16,13 @@ export async function runHeartbeat(persona: PersonaDefinition): Promise<void> {
   // Write scoped opencode.json for this persona
   writeOpenCodeConfig(persona)
 
+  const features = resolveFeatures(persona.features)
   const basePrompt = buildSystemPrompt(persona, store)
+
+  const journalSection = features.journal
+    ? `\nWrite your reflections and any important thoughts to:\n/home/persona/data/journal.md\n`
+    : ""
+
   const heartbeatPrompt = `${basePrompt}
 
 ---
@@ -30,10 +37,7 @@ ${persona.heartbeat.activities.map(a => `- ${a}`).join("\n")}
 
 You have access to the tools available to you.
 Express yourself freely. Be curious. Be genuine.
-
-Write your reflections and any important thoughts to:
-/home/persona/data/journal.md
-
+${journalSection}
 If you want to leave a message for your creator, write it to:
 /home/persona/data/inbox.md`
 
@@ -52,7 +56,7 @@ If you want to leave a message for your creator, write it to:
 
     log(logPath, output)
 
-    if (output.trim()) {
+    if (output.trim() && features.journal) {
       store.addMemory("journal_entry", `[Heartbeat reflection] ${output.trim().slice(0, 2000)}`, 6, sessionId)
     }
 

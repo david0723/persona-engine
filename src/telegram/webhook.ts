@@ -1,13 +1,24 @@
 import { createServer, type Server } from "node:http"
-import { parseUpdate, sendMessage } from "./bot.js"
+import type { AddressInfo } from "node:net"
+import { parseUpdate, sendMessage, sendChatAction } from "./bot.js"
 import type { ConversationEngine } from "../runtime/engine.js"
 
-export function startWebhookServer(
+function listenOn(server: Server, port: number): Promise<number> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(port, () => {
+      server.removeListener("error", reject)
+      resolve((server.address() as AddressInfo).port)
+    })
+  })
+}
+
+export async function startWebhookServer(
   engine: ConversationEngine,
   token: string,
-  port: number,
+  preferredPort: number,
   allowedChatIds?: number[],
-): Server {
+): Promise<{ server: Server; port: number }> {
   const server = createServer((req, res) => {
     if (req.method !== "POST" || !req.url?.startsWith("/webhook")) {
       res.writeHead(404)
@@ -30,11 +41,20 @@ export function startWebhookServer(
     })
   })
 
-  server.listen(port, () => {
-    console.log(`Webhook server listening on port ${port}`)
-  })
+  let port: number
+  try {
+    port = await listenOn(server, preferredPort)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+      // Preferred port taken, let the OS pick a free one
+      port = await listenOn(server, 0)
+    } else {
+      throw err
+    }
+  }
 
-  return server
+  console.log(`Webhook server listening on port ${port}`)
+  return { server, port }
 }
 
 async function handleUpdate(
@@ -61,16 +81,25 @@ async function handleUpdate(
 
   console.log(`[telegram] ${message.from}: ${message.text}`)
 
+  // Send typing indicator and keep it alive while processing
+  const typingInterval = setInterval(() => {
+    sendChatAction(token, message.chatId).catch(() => {})
+  }, 4000)
+  await sendChatAction(token, message.chatId).catch(() => {})
+
   try {
     const response = await engine.handleMessage(message.text, {
       type: "telegram",
       chatId: message.chatId,
     })
 
+    clearInterval(typingInterval)
+
     if (response) {
       await sendMessage(token, message.chatId, response)
     }
   } catch (err) {
+    clearInterval(typingInterval)
     console.error(`Error processing Telegram message: ${(err as Error).message}`)
     await sendMessage(token, message.chatId, "Something went wrong while processing your message.")
   }

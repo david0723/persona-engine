@@ -1,7 +1,16 @@
 import { readFileSync, existsSync } from "node:fs"
 import { parse } from "yaml"
 import { paths } from "../utils/config.js"
-import type { PersonaDefinition } from "./schema.js"
+import type { PersonaDefinition, PersonaFeatures } from "./schema.js"
+
+export function resolveFeatures(raw?: Partial<PersonaFeatures>): PersonaFeatures {
+  return {
+    identity: raw?.identity ?? true,
+    memory: raw?.memory ?? true,
+    journal: raw?.journal ?? true,
+    conversation_summary: raw?.conversation_summary ?? true,
+  }
+}
 
 export function loadPersona(name: string): PersonaDefinition {
   const yamlPath = paths.personaYaml(name)
@@ -21,17 +30,35 @@ export function validatePersona(data: Record<string, unknown>): PersonaDefinitio
 
   if (typeof data.name !== "string") errors.push("name must be a string")
 
-  const identity = data.identity as Record<string, unknown> | undefined
-  if (!identity || typeof identity !== "object") {
-    errors.push("identity must be an object")
-  } else {
-    if (typeof identity.role !== "string") errors.push("identity.role must be a string")
-    if (typeof identity.speaking_style !== "string") errors.push("identity.speaking_style must be a string")
-    if (!Array.isArray(identity.values)) errors.push("identity.values must be an array")
+  // Validate features block if present
+  if (data.features != null) {
+    const feat = data.features as Record<string, unknown>
+    if (typeof feat !== "object") {
+      errors.push("features must be an object")
+    } else {
+      for (const key of ["identity", "memory", "journal", "conversation_summary"]) {
+        if (feat[key] != null && typeof feat[key] !== "boolean")
+          errors.push(`features.${key} must be a boolean`)
+      }
+    }
   }
 
-  if (typeof data.backstory !== "string") errors.push("backstory must be a string")
-  if (typeof data.instructions !== "string") errors.push("instructions must be a string")
+  const features = resolveFeatures(data.features as Partial<PersonaFeatures> | undefined)
+
+  // Identity/backstory/instructions are required only when features.identity is true
+  if (features.identity) {
+    const identity = data.identity as Record<string, unknown> | undefined
+    if (!identity || typeof identity !== "object") {
+      errors.push("identity must be an object when features.identity is true")
+    } else {
+      if (typeof identity.role !== "string") errors.push("identity.role must be a string")
+      if (typeof identity.speaking_style !== "string") errors.push("identity.speaking_style must be a string")
+      if (!Array.isArray(identity.values)) errors.push("identity.values must be an array")
+    }
+
+    if (typeof data.backstory !== "string") errors.push("backstory must be a string when features.identity is true")
+    if (typeof data.instructions !== "string") errors.push("instructions must be a string when features.identity is true")
+  }
   // Validate optional container config
   if (data.container != null) {
     const container = data.container as Record<string, unknown>

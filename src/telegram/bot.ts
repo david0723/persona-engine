@@ -71,6 +71,14 @@ export function parseUpdate(body: Record<string, unknown>): TelegramMessage | nu
   }
 }
 
+export async function sendChatAction(token: string, chatId: number, action = "typing"): Promise<void> {
+  await fetch(`${API_BASE}${token}/sendChatAction`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, action }),
+  })
+}
+
 export function splitMessage(text: string, maxLen: number): string[] {
   if (text.length <= maxLen) return [text]
 
