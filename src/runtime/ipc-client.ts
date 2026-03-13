@@ -32,6 +32,7 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
   let earlyCloseRetries = 0
   let currentSocket: Socket | null = null
   let inputStarted = false
+  let rl: ReturnType<typeof createInterface> | null = null
   let deadlineTimer: ReturnType<typeof setTimeout> | null = null
   let waitingMessageShown = false
 
@@ -99,6 +100,9 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
       if (!inputStarted) {
         inputStarted = true
         startInput()
+      } else {
+        // Re-show prompt after reconnect
+        rl?.prompt()
       }
     })
 
@@ -145,7 +149,7 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
   // Readline is created once and reused across reconnects.
   // It writes to whatever socket is in `currentSocket`.
   function startInput(): void {
-    const rl = createInterface({
+    rl = createInterface({
       input: process.stdin,
       output: process.stdout,
       terminal: process.stdin.isTTY ?? false,
@@ -159,7 +163,7 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
         const msg = JSON.stringify({ type: "message", text: line }) + "\n"
         currentSocket.write(msg)
       }
-      rl.prompt()
+      rl?.prompt()
     })
 
     rl.on("close", () => {
