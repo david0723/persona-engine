@@ -8,6 +8,8 @@ export interface HeartbeatConfig {
   enabled: boolean
   interval_minutes: number
   activities: string[]
+  prompt?: string  // Custom heartbeat prompt framing. Replaces default reflection framing.
+  notify?: boolean // Send heartbeat results to Telegram. Default: false.
 }
 
 export interface McpServerLocal {
@@ -31,6 +33,7 @@ export interface ContainerConfig {
   memory_limit?: string // e.g. "512m"
   cpu_limit?: string // e.g. "1.0"
   allowed_env?: string[] // env var names to pass through from host
+  docker_socket?: boolean // mount host Docker socket for DooD orchestration
 }
 
 export interface TunnelConfig {

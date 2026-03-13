@@ -4,7 +4,7 @@ import { join, isAbsolute } from "node:path"
 import { parse } from "yaml"
 import { generateComposeFile, getProjectDir } from "./compose-generator.js"
 import { useTempPersonaHome } from "../test-helpers/temp-dir.js"
-import { makePersona, makePersonaWithContainer } from "../test-helpers/fixtures.js"
+import { makePersona, makePersonaWithContainer, makePersonaWithDockerSocket } from "../test-helpers/fixtures.js"
 import { IPC_TCP_PORT } from "./ipc-server.js"
 
 let tempHome: ReturnType<typeof useTempPersonaHome>
@@ -69,7 +69,7 @@ describe("generateComposeFile", () => {
       const persona = makePersona({ name: "alice" })
       const compose = generateAndParse({ name: "alice", persona, port: 3100 })
       const engine = (compose.services as Record<string, Record<string, unknown>>).engine
-      expect(engine.ports).toContain(`${IPC_TCP_PORT}:${IPC_TCP_PORT}`)
+      expect(engine.ports).toContain(`0:${IPC_TCP_PORT}`)
     })
 
     it("engine volume bind-mounts persona dir with absolute host path", () => {
@@ -211,6 +211,25 @@ describe("generateComposeFile", () => {
       })
       const engine = (compose.services as Record<string, Record<string, unknown>>).engine
       expect(engine.healthcheck).toBeDefined()
+    })
+
+    it("mounts Docker socket when docker_socket is true", () => {
+      setupPersonaDir("alice")
+      const persona = makePersonaWithDockerSocket()
+      persona.name = "alice"
+      const compose = generateAndParse({ name: "alice", persona, port: 3100 })
+      const engine = (compose.services as Record<string, Record<string, unknown>>).engine
+      const volumes = engine.volumes as string[]
+      expect(volumes).toContain("/var/run/docker.sock:/var/run/docker.sock")
+    })
+
+    it("does not mount Docker socket by default", () => {
+      setupPersonaDir("alice")
+      const persona = makePersona({ name: "alice" })
+      const compose = generateAndParse({ name: "alice", persona, port: 3100 })
+      const engine = (compose.services as Record<string, Record<string, unknown>>).engine
+      const volumes = engine.volumes as string[]
+      expect(volumes.some((v) => v.includes("docker.sock"))).toBe(false)
     })
 
     it("applies memory_limit and cpu_limit from container config", () => {

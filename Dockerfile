@@ -16,6 +16,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Docker CLI (for Docker-out-of-Docker orchestration)
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg \
+       -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+       > /etc/apt/sources.list.d/docker.list \
+    && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install gosu for entrypoint privilege drop
+RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf /var/lib/apt/lists/*
+
 # Install opencode
 RUN curl -fsSL https://opencode.ai/install | bash
 
@@ -32,7 +44,8 @@ RUN useradd -m -s /bin/bash persona && \
     mkdir -p /home/persona/workspace && \
     chown -R persona:persona /home/persona /app
 
-USER persona
+# Note: USER is not set here - entrypoint runs as root for Docker socket
+# group setup, then drops to persona via gosu
 
 # Persona data persisted via volume
 VOLUME /home/persona/.persona-engine

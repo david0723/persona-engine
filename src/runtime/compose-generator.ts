@@ -1,6 +1,7 @@
 import { writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { execSync } from "node:child_process"
 import { stringify } from "yaml"
 import { paths, loadPersonaEnv } from "../utils/config.js"
 import { IPC_TCP_PORT } from "./ipc-server.js"
@@ -67,8 +68,9 @@ export function generateComposeFile(opts: ComposeOptions): string {
       // Bind-mount persona data dir for IPC socket + memory DB access
       `${personaDir}:/home/persona/.persona-engine/personas/${name}`,
       ...(selfUpdate?.enabled ? [`persona-workspace-${name}:/home/persona/workspace`] : []),
+      ...(containerConfig.docker_socket ? ["/var/run/docker.sock:/var/run/docker.sock"] : []),
     ],
-    ports: [`${IPC_TCP_PORT}:${IPC_TCP_PORT}`],
+    ports: [`0:${IPC_TCP_PORT}`],
     environment,
     // Engine uses bridge network (shared with tunnel), not "none"
     networks: [`persona-${name}`],
@@ -137,4 +139,22 @@ export function generateComposeFile(opts: ComposeOptions): string {
  */
 export function getProjectDir(): string {
   return PROJECT_DIR
+}
+
+/**
+ * Query Docker for the dynamically assigned host port mapped to the IPC port.
+ */
+export function getIpcHostPort(name: string): number {
+  const containerName = `persona-${name}-engine-1`
+  const output = execSync(
+    `docker port ${containerName} ${IPC_TCP_PORT}`,
+    { encoding: "utf-8" },
+  ).trim()
+  // Output is like "0.0.0.0:32789" or ":::32789" (one per line)
+  const firstLine = output.split("\n")[0]
+  const port = parseInt(firstLine.split(":").pop() ?? "", 10)
+  if (isNaN(port)) {
+    throw new Error(`Could not determine IPC host port for ${containerName}: ${output}`)
+  }
+  return port
 }

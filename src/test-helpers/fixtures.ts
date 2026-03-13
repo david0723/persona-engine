@@ -40,3 +40,15 @@ export function makePersonaWithContainer(): PersonaDefinition {
     },
   })
 }
+
+export function makePersonaWithDockerSocket(): PersonaDefinition {
+  return makePersona({
+    container: {
+      enabled: true,
+      network: "bridge",
+      memory_limit: "1g",
+      cpu_limit: "1.5",
+      docker_socket: true,
+    },
+  })
+}

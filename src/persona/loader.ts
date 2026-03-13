@@ -75,6 +75,8 @@ export function validatePersona(data: Record<string, unknown>): PersonaDefinitio
         errors.push("container.cpu_limit must be a string")
       if (container.allowed_env != null && !Array.isArray(container.allowed_env))
         errors.push("container.allowed_env must be an array of strings")
+      if (container.docker_socket != null && typeof container.docker_socket !== "boolean")
+        errors.push("container.docker_socket must be a boolean")
     }
   }
 
@@ -114,6 +116,10 @@ export function validatePersona(data: Record<string, unknown>): PersonaDefinitio
     if (typeof heartbeat.enabled !== "boolean") errors.push("heartbeat.enabled must be a boolean")
     if (typeof heartbeat.interval_minutes !== "number") errors.push("heartbeat.interval_minutes must be a number")
     if (!Array.isArray(heartbeat.activities)) errors.push("heartbeat.activities must be an array")
+    if (heartbeat.prompt != null && typeof heartbeat.prompt !== "string")
+      errors.push("heartbeat.prompt must be a string")
+    if (heartbeat.notify != null && typeof heartbeat.notify !== "boolean")
+      errors.push("heartbeat.notify must be a boolean")
   }
 
   if (errors.length > 0) {

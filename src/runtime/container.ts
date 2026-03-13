@@ -130,6 +130,11 @@ export function ensureContainer(persona: PersonaDefinition): void {
   // Persist workspace across container restarts
   args.push("-v", `persona-workspace-${persona.name}:/home/persona/workspace`)
 
+  // Mount Docker socket for DooD orchestration
+  if (containerConfig.docker_socket) {
+    args.push("-v", "/var/run/docker.sock:/var/run/docker.sock")
+  }
+
   // Apply resource limits
   if (containerConfig.memory_limit) {
     args.push("--memory", containerConfig.memory_limit)

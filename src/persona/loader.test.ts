@@ -116,6 +116,16 @@ describe("validatePersona", () => {
       expect(() => validatePersona(data)).toThrow('container.network must be')
     })
 
+    it("container.docker_socket accepts boolean", () => {
+      const data = { ...validPersonaData(), container: { docker_socket: true } }
+      expect(() => validatePersona(data)).not.toThrow()
+    })
+
+    it("container.docker_socket rejects non-boolean", () => {
+      const data = { ...validPersonaData(), container: { docker_socket: "yes" } }
+      expect(() => validatePersona(data)).toThrow("container.docker_socket must be a boolean")
+    })
+
     it('container.network accepts "none", "bridge", "host"', () => {
       for (const net of ["none", "bridge", "host"]) {
         const data = { ...validPersonaData(), container: { network: net } }

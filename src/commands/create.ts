@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs"
 import { execSync } from "node:child_process"
 import chalk from "chalk"
 import { paths, ensurePersonaDir } from "../utils/config.js"
-import { defaultPersonaYaml, architectPersonaYaml } from "../persona/defaults.js"
+import { defaultPersonaYaml, architectPersonaYaml, orchestratorPersonaYaml } from "../persona/defaults.js"
 import { personaExists } from "../persona/loader.js"
 
 interface CreateOptions {
@@ -12,6 +12,7 @@ interface CreateOptions {
 const TEMPLATES: Record<string, (name: string) => string> = {
   default: defaultPersonaYaml,
   architect: architectPersonaYaml,
+  orchestrator: orchestratorPersonaYaml,
 }
 
 export async function createPersona(name: string, options: CreateOptions = {}): Promise<void> {
