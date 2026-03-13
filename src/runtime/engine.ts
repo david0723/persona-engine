@@ -147,6 +147,9 @@ export class ConversationEngine extends EventEmitter {
           }
         }
       },
+      (stderrText) => {
+        this.emit("activity", { source, tool: `[stderr] ${stderrText.slice(0, 120)}` })
+      },
     )
 
     const trimmed = output.trim()

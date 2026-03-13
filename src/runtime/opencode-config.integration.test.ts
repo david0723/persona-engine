@@ -44,6 +44,28 @@ describe("writeOpenCodeConfig", () => {
     })
     const configPath = writeOpenCodeConfig(persona)
     const config = JSON.parse(readFileSync(configPath, "utf-8"))
-    expect(config.permission).toEqual({ bash: "allow", edit: "allow", read: "allow" })
+    expect(config.permission).toEqual({ bash: "allow", edit: "allow", read: "allow", external_directory: "allow" })
+  })
+
+  it("adds external_directory when containerized with explicit permissions", () => {
+    const persona = makePersona({
+      name: "alice",
+      container: { enabled: true, network: "bridge" },
+      permissions: { bash: "allow", edit: "allow", read: "allow" },
+    })
+    const configPath = writeOpenCodeConfig(persona)
+    const config = JSON.parse(readFileSync(configPath, "utf-8"))
+    expect(config.permission.external_directory).toBe("allow")
+  })
+
+  it("preserves explicit external_directory setting in container", () => {
+    const persona = makePersona({
+      name: "alice",
+      container: { enabled: true, network: "bridge" },
+      permissions: { bash: "allow", edit: "allow", read: "allow", external_directory: "deny" },
+    })
+    const configPath = writeOpenCodeConfig(persona)
+    const config = JSON.parse(readFileSync(configPath, "utf-8"))
+    expect(config.permission.external_directory).toBe("deny")
   })
 })

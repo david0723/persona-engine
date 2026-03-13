@@ -48,6 +48,7 @@ container:
     - GEMINI_API_KEY
     - GOOGLE_API_KEY
     - GITHUB_TOKEN
+    - BRAVE_API_KEY
     - PERSONA_ENGINE_REPO_URL
 
 permissions:

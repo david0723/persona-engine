@@ -7,6 +7,13 @@ import type { PersonaDefinition } from "../persona/schema.js"
 const OPENCODE_BIN = join(homedir(), ".opencode", "bin", "opencode")
 const OPENCODE_BIN_CONTAINER = "/home/persona/.opencode/bin/opencode"
 
+/** Inactivity threshold before emitting a warning (ms). */
+const INACTIVITY_WARN_MS = 2 * 60 * 1000
+/** Inactivity threshold before killing the process (ms). */
+const INACTIVITY_KILL_MS = 5 * 60 * 1000
+/** Hard cap regardless of activity (ms). */
+const HARD_TIMEOUT_MS = 30 * 60 * 1000
+
 export interface OpenCodeRunOptions {
   message: string
   persona: PersonaDefinition
@@ -59,12 +66,13 @@ export function openCodeRunStreaming(
   options: OpenCodeRunOptions,
   onFirstChunk?: () => void,
   onChunk?: (text: string) => void,
+  onStderr?: (text: string) => void,
 ): Promise<string> {
   if (useContainer(options.persona)) {
     ensureContainer(options.persona)
     const bin = OPENCODE_BIN_CONTAINER
     const args = buildArgs({ ...options, dir: "/home/persona/data" })
-    return execInContainerStreaming(options.persona, [bin, ...args], onFirstChunk, onChunk)
+    return execInContainerStreaming(options.persona, [bin, ...args], onFirstChunk, onChunk, onStderr)
   }
 
   return new Promise((resolve, reject) => {
@@ -78,8 +86,48 @@ export function openCodeRunStreaming(
     let output = ""
     let stderrOutput = ""
     let firstChunkFired = false
+    let settled = false
+
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(hardTimer)
+      clearTimeout(inactivityTimer)
+      fn()
+    }
+
+    // Inactivity timer: resets on every data event
+    let warnFired = false
+    let inactivityTimer = setTimeout(() => onInactive(), INACTIVITY_WARN_MS)
+
+    const resetInactivity = () => {
+      warnFired = false
+      clearTimeout(inactivityTimer)
+      inactivityTimer = setTimeout(() => onInactive(), INACTIVITY_WARN_MS)
+    }
+
+    function onInactive(): void {
+      if (settled) return
+      if (!warnFired) {
+        warnFired = true
+        onStderr?.("No output for 2 minutes, process may be stuck")
+        inactivityTimer = setTimeout(() => onInactive(), INACTIVITY_KILL_MS - INACTIVITY_WARN_MS)
+        return
+      }
+      // Kill after full inactivity period
+      child.kill("SIGKILL")
+      settle(() => reject(new Error("opencode killed after 5 minutes of inactivity")))
+    }
+
+    // Hard timeout: kill no matter what
+    const hardTimer = setTimeout(() => {
+      if (settled) return
+      child.kill("SIGKILL")
+      settle(() => reject(new Error("opencode killed after 30 minute hard timeout")))
+    }, HARD_TIMEOUT_MS)
 
     child.stdout.on("data", (data: Buffer) => {
+      resetInactivity()
       const text = data.toString()
       if (!firstChunkFired) {
         firstChunkFired = true
@@ -94,22 +142,32 @@ export function openCodeRunStreaming(
     })
 
     child.stderr.on("data", (data: Buffer) => {
+      resetInactivity()
       const text = data.toString()
       stderrOutput += text
-      if (onChunk) return // Ink controls the terminal - suppress stderr during streaming
+      // Forward meaningful stderr via callback
+      if (onStderr) {
+        const trimmed = text.trim()
+        if (trimmed && !trimmed.includes("MetadataLookup") && !trimmed.includes("warn")) {
+          onStderr(trimmed)
+        }
+        return
+      }
       if (!text.includes("MetadataLookup") && !text.includes("warn")) {
         process.stderr.write(data)
       }
     })
 
     child.on("close", (code) => {
-      if (code === 0 || code === null) {
-        resolve(output)
-      } else {
-        reject(new Error(`opencode exited with code ${code}: ${stderrOutput.trim()}`))
-      }
+      settle(() => {
+        if (code === 0 || code === null) {
+          resolve(output)
+        } else {
+          reject(new Error(`opencode exited with code ${code}: ${stderrOutput.trim()}`))
+        }
+      })
     })
 
-    child.on("error", reject)
+    child.on("error", (err) => settle(() => reject(err)))
   })
 }

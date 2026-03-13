@@ -3,6 +3,7 @@ import { createInterface } from "node:readline"
 import chalk from "chalk"
 import { socketPath } from "./ipc-server.js"
 import {
+  writeChunk,
   writeLine,
   writePersonaHeader,
   writeSystem,
@@ -35,6 +36,9 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
   let rl: ReturnType<typeof createInterface> | null = null
   let deadlineTimer: ReturnType<typeof setTimeout> | null = null
   let waitingMessageShown = false
+
+  // Streaming context: tracks whether we've received chunk events for the current response
+  const streamCtx = { streamed: false, headerPrinted: false }
 
   if (deadline > 0) {
     deadlineTimer = setTimeout(() => {
@@ -117,7 +121,7 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
         if (!line.trim()) continue
         try {
           const event = JSON.parse(line) as IpcEvent
-          handleEvent(event, personaName, status)
+          handleEvent(event, personaName, status, streamCtx)
         } catch {
           // Ignore malformed JSON
         }
@@ -182,10 +186,16 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
   connect()
 }
 
+interface StreamContext {
+  streamed: boolean
+  headerPrinted: boolean
+}
+
 function handleEvent(
   event: IpcEvent,
   personaName: string,
   status: StatusLine,
+  ctx: StreamContext,
 ): void {
   switch (event.type) {
     case "history": {
@@ -204,10 +214,25 @@ function handleEvent(
       break
     }
     case "thinking":
+      ctx.streamed = false
+      ctx.headerPrinted = false
       status.show("Thinking")
       break
+    case "chunk": {
+      if (!ctx.headerPrinted) {
+        status.clear()
+        writeLine()
+        writePersonaHeader(personaName)
+        ctx.headerPrinted = true
+      }
+      writeChunk(event.text ?? "")
+      ctx.streamed = true
+      break
+    }
     case "activity":
-      status.show(`Using ${event.tool}`)
+      if (!ctx.streamed) {
+        status.show(`Using ${event.tool}`)
+      }
       break
     case "responding":
       status.clear()
@@ -222,10 +247,17 @@ function handleEvent(
     }
     case "response": {
       status.clear()
-      writeLine()
-      writePersonaHeader(personaName)
-      writeLine(event.text ?? "")
-      writeLine()
+      if (ctx.streamed) {
+        writeLine()
+        writeLine()
+      } else {
+        writeLine()
+        writePersonaHeader(personaName)
+        writeLine(event.text ?? "")
+        writeLine()
+      }
+      ctx.streamed = false
+      ctx.headerPrinted = false
       break
     }
   }
