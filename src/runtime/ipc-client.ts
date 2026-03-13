@@ -5,7 +5,6 @@ import { socketPath } from "./ipc-server.js"
 import {
   writeLine,
   writePersonaHeader,
-  writeUserPrompt,
   writeSystem,
   StatusLine,
 } from "../utils/stream.js"
@@ -73,18 +72,18 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
     const rl = createInterface({
       input: process.stdin,
       output: process.stdout,
-      terminal: false,
+      terminal: process.stdin.isTTY ?? false,
+      prompt: chalk.bold.green("you: "),
     })
 
-    const prompt = () => writeUserPrompt()
-    prompt()
+    rl.prompt()
 
     rl.on("line", (line) => {
       if (line.trim()) {
         const msg = JSON.stringify({ type: "message", text: line }) + "\n"
         socket.write(msg)
       }
-      prompt()
+      rl.prompt()
     })
 
     rl.on("close", () => {
