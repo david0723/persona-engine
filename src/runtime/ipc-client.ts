@@ -1,5 +1,5 @@
 import { createConnection, type Socket } from "node:net"
-import { createInterface, type Interface as ReadlineInterface } from "node:readline"
+import { createInterface } from "node:readline"
 import chalk from "chalk"
 import { socketPath } from "./ipc-server.js"
 import {
@@ -30,8 +30,8 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
   const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : 0
 
   let earlyCloseRetries = 0
-  let rl: ReadlineInterface | null = null
-  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  let currentSocket: Socket | null = null
+  let inputStarted = false
   let deadlineTimer: ReturnType<typeof setTimeout> | null = null
   let waitingMessageShown = false
 
@@ -63,7 +63,7 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
           waitingMessageShown = true
         }
         debug(`${code}, retrying in ${retryMs}ms`)
-        retryTimer = setTimeout(connect, retryMs)
+        setTimeout(connect, retryMs)
         return
       }
 
@@ -86,16 +86,20 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
 
     socket.on("connect", () => {
       connectTime = Date.now()
+      currentSocket = socket
       debug("connected")
 
-      // Clear deadline timer on successful connection
       if (deadlineTimer) {
         clearTimeout(deadlineTimer)
         deadlineTimer = null
       }
 
       writeSystem(`Attached to ${personaName}. Press Ctrl+C to detach.\n`)
-      startInput(socket)
+
+      if (!inputStarted) {
+        inputStarted = true
+        startInput()
+      }
     })
 
     let buffer = ""
@@ -120,20 +124,14 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
       const elapsed = connectTime > 0 ? Date.now() - connectTime : 0
       debug(`close: hadError=${hadError}, elapsed=${elapsed}ms, hasData=${hasReceivedData}`)
 
-      // Early close with no data: likely a stale RST from probe connection
+      // Early close with no data: likely a stale RST from vpnkit
       if (connectTime > 0 && elapsed < EARLY_CLOSE_WINDOW_MS && !hasReceivedData) {
         if (earlyCloseRetries < MAX_EARLY_CLOSE_RETRIES) {
           earlyCloseRetries++
           debug(`early close without data, reconnecting (attempt ${earlyCloseRetries}/${MAX_EARLY_CLOSE_RETRIES})`)
           writeSystem(`Connection dropped, reconnecting (${earlyCloseRetries}/${MAX_EARLY_CLOSE_RETRIES})...`)
-
-          // Clean up readline before retry
-          if (rl) {
-            rl.close()
-            rl = null
-          }
-
-          retryTimer = setTimeout(connect, retryMs || 500)
+          currentSocket = null
+          setTimeout(connect, retryMs || 500)
           return
         }
       }
@@ -144,14 +142,10 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
     })
   }
 
-  function startInput(socket: Socket): void {
-    // Clean up previous readline if reconnecting
-    if (rl) {
-      rl.close()
-      rl = null
-    }
-
-    rl = createInterface({
+  // Readline is created once and reused across reconnects.
+  // It writes to whatever socket is in `currentSocket`.
+  function startInput(): void {
+    const rl = createInterface({
       input: process.stdin,
       output: process.stdout,
       terminal: process.stdin.isTTY ?? false,
@@ -161,22 +155,22 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
     rl.prompt()
 
     rl.on("line", (line) => {
-      if (line.trim()) {
+      if (line.trim() && currentSocket) {
         const msg = JSON.stringify({ type: "message", text: line }) + "\n"
-        socket.write(msg)
+        currentSocket.write(msg)
       }
-      rl?.prompt()
+      rl.prompt()
     })
 
     rl.on("close", () => {
       writeSystem("\nDetaching...")
-      socket.end()
+      currentSocket?.end()
       process.exit(0)
     })
 
     process.on("SIGINT", () => {
       writeSystem("\nDetaching...")
-      socket.end()
+      currentSocket?.end()
       process.exit(0)
     })
   }
@@ -215,7 +209,6 @@ function handleEvent(
       status.clear()
       break
     case "message": {
-      // Show messages from other sources
       if (event.source !== "attach") {
         status.clear()
         const sourceLabel = event.source ?? "unknown"
