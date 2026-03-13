@@ -1,9 +1,10 @@
 import { execSync } from "node:child_process"
-import { writeFileSync } from "node:fs"
-import { join } from "node:path"
 import chalk from "chalk"
 import { loadPersona } from "../persona/loader.js"
 import { loadPersonaEnv } from "../utils/config.js"
+import { isDockerAvailable } from "../runtime/container.js"
+import { generateComposeFile, getProjectDir } from "../runtime/compose-generator.js"
+import { writeTunnelConfig, cleanupTunnelConfig } from "../telegram/tunnel.js"
 
 interface DeployOptions {
   webhookUrl?: string
@@ -20,92 +21,71 @@ export async function deployPersona(name: string, options: DeployOptions): Promi
     process.exit(1)
   }
 
-  const port = options.port ?? "3100"
-  const webhookUrl = options.webhookUrl
-
-  if (!webhookUrl) {
-    console.error(chalk.red("--webhook-url is required for deployment."))
-    console.error(chalk.dim("Example: persona deploy my-bot --webhook-url https://my-domain.com"))
-    process.exit(1)
-  }
+  const port = parseInt(options.port ?? "3100", 10)
 
   if (!persona.telegram?.bot_token) {
     console.error(chalk.red(`No Telegram bot token configured for "${name}".`))
     process.exit(1)
   }
 
-  // Generate a deployment-specific compose file
-  const projectDir = join(import.meta.dirname, "..", "..")
-  const containerConfig = persona.container ?? { enabled: false }
-  const networkMode = containerConfig.network ?? "none"
-  const memoryLimit = containerConfig.memory_limit ?? "512M"
-  const cpuLimit = containerConfig.cpu_limit ?? "1.0"
+  if (!isDockerAvailable()) {
+    console.error(chalk.red("Docker is not running. Start Docker Desktop or install Docker."))
+    process.exit(1)
+  }
 
-  // Build environment variables from the persona's own .env file
+  // Resolve webhook URL: explicit flag > tunnel config
   const personaEnv = loadPersonaEnv(name)
-  const environment: string[] = [
-    "PERSONA_ENGINE_CONTAINERIZED=true",
-    `WEBHOOK_URL=${webhookUrl}`,
-  ]
+  const tunnelToken = personaEnv.CLOUDFLARE_TUNNEL_TOKEN ?? process.env.CLOUDFLARE_TUNNEL_TOKEN
+  const tunnelConfig = persona.telegram?.tunnel
 
-  // Inject all vars from the persona's .env
-  for (const [key, value] of Object.entries(personaEnv)) {
-    environment.push(`${key}=${value}`)
+  let tunnelConfigDir: string | undefined
+  let webhookUrl = options.webhookUrl
+
+  if (!webhookUrl && tunnelToken && tunnelConfig) {
+    // Use Cloudflare tunnel via compose
+    const result = writeTunnelConfig(
+      tunnelToken,
+      tunnelConfig.hostname,
+      `http://engine:${port}`,
+    )
+    tunnelConfigDir = result.dir
+    webhookUrl = `https://${tunnelConfig.hostname}`
   }
 
-  // Inject repo URL from self_update config if not already in .env
-  const selfUpdate = persona.self_update
-  if (selfUpdate?.enabled && selfUpdate.repo_url && !personaEnv.PERSONA_ENGINE_REPO_URL) {
-    environment.push(`PERSONA_ENGINE_REPO_URL=${selfUpdate.repo_url}`)
+  if (!webhookUrl) {
+    console.error(chalk.red("No webhook URL available."))
+    console.error(chalk.dim("Either pass --webhook-url or run `persona setup-telegram` first."))
+    process.exit(1)
   }
 
-  const service: Record<string, unknown> = {
-    build: ".",
-    command: ["serve", name, "--no-cli", "--port", port],
-    volumes: [
-      "persona-data:/home/persona/.persona-engine",
-      ...(selfUpdate?.enabled ? ["persona-workspace:/home/persona/workspace"] : []),
-    ],
-    ports: [`${port}:${port}`],
-    environment,
-    network_mode: networkMode,
-    read_only: true,
-    tmpfs: ["/tmp"],
-    deploy: {
-      resources: {
-        limits: {
-          memory: memoryLimit,
-          cpus: cpuLimit,
-        },
-      },
-    },
-    restart: "unless-stopped",
-  }
+  // Generate compose file using shared generator
+  const composePath = generateComposeFile({
+    name,
+    persona,
+    port,
+    tunnelConfigDir,
+    webhookUrl,
+    detached: true,
+  })
 
-  const volumes: Record<string, Record<string, never>> = { "persona-data": {} }
-  if (selfUpdate?.enabled) {
-    volumes["persona-workspace"] = {}
-  }
+  const projectDir = getProjectDir()
+  const projectName = `persona-${name}`
+  const composeArgs = ["-p", projectName, "-f", composePath]
 
-  const composeOverride = {
-    services: { persona: service },
-    volumes,
-  }
-
-  const composePath = join(projectDir, `docker-compose.${name}.yml`)
-  writeFileSync(composePath, JSON.stringify(composeOverride, null, 2), "utf-8")
-
-  console.log(chalk.dim(`Generated ${composePath}`))
-  console.log(chalk.dim("Building and starting container..."))
+  console.log(chalk.dim("Building and starting containers..."))
 
   try {
-    execSync(`docker compose -f "${composePath}" up -d --build`, {
-      cwd: projectDir,
-      stdio: "inherit",
-    })
+    execSync(
+      `docker compose ${composeArgs.join(" ")} up -d --build`,
+      { cwd: projectDir, stdio: "inherit" },
+    )
     console.log(chalk.green(`\n${persona.name} deployed successfully.`))
     console.log(chalk.dim(`Webhook URL: ${webhookUrl}/webhook/${name}`))
-    console.log(chalk.dim(`Stop with: docker compose -f "${composePath}" down`))
+    console.log(chalk.dim(`Stop with: docker compose ${composeArgs.join(" ")} down`))
+
+    if (tunnelConfigDir) {
+      console.log(chalk.dim(`Tunnel config: ${tunnelConfigDir} (do not delete while running)`))
+    }
 
     if (options.withSupervisor) {
       console.log(chalk.bold("\nSupervisor setup instructions:"))
@@ -129,6 +109,7 @@ export async function deployPersona(name: string, options: DeployOptions): Promi
     }
   } catch (err) {
     console.error(chalk.red(`Deployment failed: ${(err as Error).message}`))
+    if (tunnelConfigDir) cleanupTunnelConfig(tunnelConfigDir)
     process.exit(1)
   }
 }

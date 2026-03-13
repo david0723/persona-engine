@@ -1,20 +1,23 @@
+import { execSync, spawn, type ChildProcess } from "node:child_process"
+import { existsSync, watchFile, unwatchFile } from "node:fs"
 import chalk from "chalk"
 import { loadPersona } from "../persona/loader.js"
-import { ConversationEngine } from "../runtime/engine.js"
-import { runCliAdapter } from "../runtime/conversation.js"
-import { setWebhook, deleteWebhook } from "../telegram/bot.js"
-import { startWebhookServer } from "../telegram/webhook.js"
-import { startTunnel, stopTunnel } from "../telegram/tunnel.js"
-import { IpcServer } from "../runtime/ipc-server.js"
+import { loadPersonaEnv } from "../utils/config.js"
+import { isDockerAvailable } from "../runtime/container.js"
+import { generateComposeFile, getProjectDir } from "../runtime/compose-generator.js"
+import { writeTunnelConfig, cleanupTunnelConfig } from "../telegram/tunnel.js"
+import { connectToPersona } from "../runtime/ipc-client.js"
+import { socketPath } from "../runtime/ipc-server.js"
 
 interface ServeOptions {
   port?: string
-  noCli?: boolean
+  cli?: boolean  // --no-cli sets this to false
 }
 
 export async function servePersona(name: string, options: ServeOptions): Promise<void> {
   const port = parseInt(options.port ?? "3100", 10)
 
+  // 1. Load persona config
   let persona
   try {
     persona = loadPersona(name)
@@ -30,59 +33,92 @@ export async function servePersona(name: string, options: ServeOptions): Promise
     process.exit(1)
   }
 
-  const engine = new ConversationEngine(persona)
-
-  // Start IPC server for attach clients
-  const ipcServer = new IpcServer(engine, name)
-  ipcServer.start()
-  console.log(chalk.dim("IPC server started (use `persona attach` to connect)"))
-
-  // Start webhook server
-  const allowedChatIds = persona.telegram?.allowed_chat_ids
-  const server = startWebhookServer(engine, token, port, allowedChatIds)
-
-  // Resolve public URL: use WEBHOOK_URL env var or start a tunnel
-  let tunnelUrl: string
-  const envWebhookUrl = process.env.WEBHOOK_URL
-  if (envWebhookUrl) {
-    tunnelUrl = envWebhookUrl
-    console.log(chalk.green(`Using configured webhook URL: ${tunnelUrl}`))
-  } else {
-    console.log(chalk.dim("Starting tunnel..."))
-    try {
-      tunnelUrl = await startTunnel(port)
-    } catch (err) {
-      console.error(chalk.red(`Failed to start tunnel: ${(err as Error).message}`))
-      console.error(chalk.dim("Install cloudflared: brew install cloudflared"))
-      server.close()
-      process.exit(1)
-    }
-    console.log(chalk.green(`Tunnel active: ${tunnelUrl}`))
-  }
-
-  const webhookUrl = `${tunnelUrl}/webhook/${name}`
-
-  // Register webhook with Telegram
-  try {
-    await setWebhook(token, webhookUrl)
-    console.log(chalk.green(`Telegram webhook registered: ${webhookUrl}`))
-  } catch (err) {
-    console.error(chalk.red(`Failed to set webhook: ${(err as Error).message}`))
-    stopTunnel()
-    server.close()
+  // 2. Ensure Docker is available
+  if (!isDockerAvailable()) {
+    console.error(chalk.red("Docker is not running. Start Docker Desktop or install Docker."))
     process.exit(1)
   }
 
-  console.log(chalk.bold(`\n${persona.name} is live on Telegram and CLI.\n`))
+  // 3. Resolve tunnel config
+  const personaEnv = loadPersonaEnv(name)
+  const tunnelToken = personaEnv.CLOUDFLARE_TUNNEL_TOKEN ?? process.env.CLOUDFLARE_TUNNEL_TOKEN
+  const tunnelConfig = persona.telegram?.tunnel
 
-  // Cleanup on exit
-  const cleanup = async () => {
+  let tunnelConfigDir: string | undefined
+  let webhookUrl: string | undefined
+
+  if (tunnelToken && tunnelConfig) {
+    console.log(chalk.dim(`Writing tunnel config for ${tunnelConfig.hostname}...`))
+    const result = writeTunnelConfig(
+      tunnelToken,
+      tunnelConfig.hostname,
+      `http://engine:${port}`,
+    )
+    tunnelConfigDir = result.dir
+    webhookUrl = `https://${tunnelConfig.hostname}`
+  } else if (!tunnelConfig) {
+    console.error(chalk.red("No tunnel configured. Run `persona setup-telegram` first."))
+    console.error(chalk.dim("A Cloudflare tunnel is required for Docker-based serving."))
+    process.exit(1)
+  }
+
+  // 4. Generate docker-compose file
+  const composePath = generateComposeFile({
+    name,
+    persona,
+    port,
+    tunnelConfigDir,
+    webhookUrl,
+  })
+
+  const projectDir = getProjectDir()
+  const projectName = `persona-${name}`
+  const composeArgs = ["-p", projectName, "-f", composePath]
+
+  console.log(chalk.dim("Building and starting containers..."))
+
+  // 5. Build and start the stack
+  try {
+    execSync(
+      `docker compose ${composeArgs.join(" ")} up -d --build`,
+      { cwd: projectDir, stdio: "inherit" },
+    )
+  } catch (err) {
+    console.error(chalk.red(`Failed to start containers: ${(err as Error).message}`))
+    if (tunnelConfigDir) cleanupTunnelConfig(tunnelConfigDir)
+    process.exit(1)
+  }
+
+  console.log(chalk.green("Containers started."))
+  if (webhookUrl) {
+    console.log(chalk.green(`Tunnel: ${webhookUrl}`))
+    console.log(chalk.dim(`Webhook: ${webhookUrl}/webhook/${name}`))
+  }
+
+  // 6. Wait for IPC socket
+  const sockPath = socketPath(name)
+  console.log(chalk.dim("Waiting for engine to start..."))
+  try {
+    await waitForSocket(sockPath)
+  } catch {
+    console.error(chalk.red("Engine failed to start within timeout."))
+    console.error(chalk.dim("Check logs: docker compose " + composeArgs.join(" ") + " logs engine"))
+    shutdown(composeArgs, projectDir, tunnelConfigDir)
+    process.exit(1)
+  }
+
+  console.log(chalk.bold(`\n${persona.name} is live.\n`))
+
+  // 7. Cleanup on exit
+  let logsProcess: ChildProcess | null = null
+
+  const cleanup = () => {
     console.log(chalk.dim("\nShutting down..."))
-    try { await deleteWebhook(token) } catch { /* ignore */ }
-    ipcServer.stop()
-    stopTunnel()
-    server.close()
-    await engine.shutdown()
+    if (logsProcess) {
+      logsProcess.kill()
+      logsProcess = null
+    }
+    shutdown(composeArgs, projectDir, tunnelConfigDir)
     console.log(chalk.dim("Done."))
     process.exit(0)
   }
@@ -90,12 +126,61 @@ export async function servePersona(name: string, options: ServeOptions): Promise
   process.on("SIGINT", cleanup)
   process.on("SIGTERM", cleanup)
 
-  // Start CLI adapter unless --no-cli
-  if (!options.noCli) {
-    await runCliAdapter(engine)
+  // 8. CLI mode or log tailing
+  if (options.cli !== false) {
+    connectToPersona(name)
   } else {
-    // Keep the process alive
     console.log(chalk.dim("Running in Telegram-only mode. Press Ctrl+C to stop."))
+    logsProcess = spawn(
+      "docker",
+      ["compose", ...composeArgs, "logs", "-f"],
+      { cwd: projectDir, stdio: "inherit" },
+    )
     await new Promise(() => {}) // block forever
+  }
+}
+
+/**
+ * Wait for the IPC socket file to appear (engine is ready).
+ */
+function waitForSocket(sockPath: string, timeoutMs = 60000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (existsSync(sockPath)) {
+      resolve()
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      unwatchFile(sockPath)
+      reject(new Error("Timed out waiting for engine socket"))
+    }, timeoutMs)
+
+    // Poll every second since fs.watchFile is more reliable for new files
+    const interval = setInterval(() => {
+      if (existsSync(sockPath)) {
+        clearTimeout(timeout)
+        clearInterval(interval)
+        unwatchFile(sockPath)
+        resolve()
+      }
+    }, 1000)
+  })
+}
+
+/**
+ * Tear down the docker-compose stack and clean up temp files.
+ */
+function shutdown(composeArgs: string[], projectDir: string, tunnelConfigDir?: string): void {
+  try {
+    execSync(`docker compose ${composeArgs.join(" ")} down`, {
+      cwd: projectDir,
+      stdio: "inherit",
+      timeout: 30000,
+    })
+  } catch {
+    // Best effort
+  }
+  if (tunnelConfigDir) {
+    cleanupTunnelConfig(tunnelConfigDir)
   }
 }
