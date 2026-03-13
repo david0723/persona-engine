@@ -18,6 +18,8 @@ export interface ConnectOptions {
   retryMs?: number
   /** Total timeout for initial connection in ms. */
   timeoutMs?: number
+  /** Show all engine logs including stderr. */
+  verbose?: boolean
 }
 
 const MAX_EARLY_CLOSE_RETRIES = 3
@@ -26,6 +28,7 @@ const debug = process.env.DEBUG ? (...args: unknown[]) => console.error(chalk.di
 
 export function connectToPersona(personaName: string, options?: ConnectOptions): void {
   const status = new StatusLine()
+  const verbose = options?.verbose ?? false
   const retryMs = options?.retryMs ?? 0
   const timeoutMs = options?.timeoutMs ?? 0
   const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : 0
@@ -121,7 +124,7 @@ export function connectToPersona(personaName: string, options?: ConnectOptions):
         if (!line.trim()) continue
         try {
           const event = JSON.parse(line) as IpcEvent
-          handleEvent(event, personaName, status, streamCtx)
+          handleEvent(event, personaName, status, streamCtx, verbose)
         } catch {
           // Ignore malformed JSON
         }
@@ -196,6 +199,7 @@ function handleEvent(
   personaName: string,
   status: StatusLine,
   ctx: StreamContext,
+  verbose: boolean,
 ): void {
   switch (event.type) {
     case "history": {
@@ -232,6 +236,11 @@ function handleEvent(
     case "activity":
       if (!ctx.streamed) {
         status.show(`Using ${event.tool}`)
+      }
+      break
+    case "stderr":
+      if (verbose) {
+        status.show(`[log] ${event.text}`)
       }
       break
     case "responding":

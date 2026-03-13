@@ -10,7 +10,7 @@ export interface IpcMessage {
 }
 
 export interface IpcEvent {
-  type: "thinking" | "responding" | "message" | "response" | "history" | "activity" | "chunk"
+  type: "thinking" | "responding" | "message" | "response" | "history" | "activity" | "chunk" | "stderr"
   text?: string
   source?: string
   tool?: string
@@ -68,6 +68,10 @@ export class IpcServer {
 
     this.engine.on("activity", (ev: { source: MessageSource; tool: string }) => {
       this.broadcast({ type: "activity", source: ev.source.type, tool: ev.tool })
+    })
+
+    this.engine.on("stderr", (ev: { source: MessageSource; text: string }) => {
+      this.broadcast({ type: "stderr", source: ev.source.type, text: ev.text })
     })
 
     this.engine.on("chunk", (chunk: string) => {

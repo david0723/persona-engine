@@ -27,6 +27,43 @@ export interface ConversationEvent {
   text: string
 }
 
+// Stderr patterns that are noise, not real errors
+const STDERR_NOISE_PATTERNS = [
+  /sqlite-migration:done/,
+  /const provider = s\.providers/,
+  /s\.providers\[providerID\]/,
+  /^\s+at /,               // stack trace lines
+  /\d{3,}\s*\|/,           // source code line numbers (e.g. "1175 |")
+  /^Downloading/,          // download progress
+  /^Extracting/,
+]
+
+const recentStderr = new Map<string, number>()
+const DEDUP_WINDOW_MS = 5000
+
+function isSignificantError(text: string): boolean {
+  // Filter known noise patterns
+  for (const pattern of STDERR_NOISE_PATTERNS) {
+    if (pattern.test(text)) return false
+  }
+
+  // Deduplicate rapid repeats
+  const key = text.slice(0, 80)
+  const now = Date.now()
+  const lastSeen = recentStderr.get(key)
+  if (lastSeen && now - lastSeen < DEDUP_WINDOW_MS) return false
+  recentStderr.set(key, now)
+
+  // Prune old entries periodically
+  if (recentStderr.size > 100) {
+    for (const [k, ts] of recentStderr) {
+      if (now - ts > DEDUP_WINDOW_MS) recentStderr.delete(k)
+    }
+  }
+
+  return true
+}
+
 // Patterns that indicate tool usage in opencode output
 const TOOL_PATTERNS = [
   /^⏺ (Read|Write|Edit|Bash|Glob|Grep|Search|WebFetch|WebSearch|ListMcpResourcesTool|Agent)\b/m,
@@ -148,7 +185,9 @@ export class ConversationEngine extends EventEmitter {
         }
       },
       (stderrText) => {
-        this.emit("activity", { source, tool: `[stderr] ${stderrText.slice(0, 120)}` })
+        if (isSignificantError(stderrText)) {
+          this.emit("stderr", { source, text: stderrText.slice(0, 120) })
+        }
       },
     )
 

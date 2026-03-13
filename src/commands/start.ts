@@ -2,16 +2,16 @@ import { execSync, spawn, type ChildProcess } from "node:child_process"
 import chalk from "chalk"
 import { loadPersona } from "../persona/loader.js"
 import { isContainerized, isDockerAvailable } from "../runtime/container.js"
-import { generateComposeFile, getProjectDir } from "../runtime/compose-generator.js"
+import { generateComposeFile, getProjectDir, getIpcHostPort } from "../runtime/compose-generator.js"
 import { cleanupTunnelConfig } from "../telegram/tunnel.js"
 import { connectToPersona } from "../runtime/ipc-client.js"
-import { IPC_TCP_PORT } from "../runtime/ipc-server.js"
 import { reconcileTelegram } from "../infra/reconciler.js"
 
 interface StartOptions {
   port?: string
   cli?: boolean      // --no-cli sets to false
   detached?: boolean  // -d flag
+  verbose?: boolean   // -v flag
 }
 
 export async function startPersona(name: string, options: StartOptions): Promise<void> {
@@ -119,8 +119,6 @@ async function startContainerMode(
     return
   }
 
-  const ipcPort = IPC_TCP_PORT
-
   console.log(chalk.bold(`\n${persona.name} is live.\n`))
 
   // Cleanup on exit
@@ -142,7 +140,8 @@ async function startContainerMode(
 
   // CLI mode or log tailing
   if (options.cli !== false) {
-    connectToPersona(name, { tcpPort: ipcPort, retryMs: 1000, timeoutMs: 60_000 })
+    const ipcPort = getIpcHostPort(name)
+    connectToPersona(name, { tcpPort: ipcPort, retryMs: 1000, timeoutMs: 60_000, verbose: options.verbose })
   } else {
     console.log(chalk.dim("Running in Telegram-only mode. Press Ctrl+C to stop."))
     logsProcess = spawn(

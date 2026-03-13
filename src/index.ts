@@ -9,6 +9,7 @@ import { installHeartbeat } from "./commands/install-heartbeat.js"
 import { startPersona } from "./commands/start.js"
 import { attachToPersona } from "./commands/attach.js"
 import { renamePersona } from "./commands/rename.js"
+import { showHistory } from "./commands/history.js"
 
 const program = new Command()
   .name("persona")
@@ -32,6 +33,7 @@ program
   .option("-p, --port <port>", "Webhook server port", "3100")
   .option("--no-cli", "No CLI input (headless/Telegram only)")
   .option("-d, --detached", "Run in background, don't attach CLI")
+  .option("-v, --verbose", "Show all engine logs including stderr")
   .action(startPersona)
 
 program
@@ -45,6 +47,13 @@ program
   .option("-k, --kind <type>", "Filter by memory kind")
   .option("-r, --recent <n>", "Show last N entries")
   .action(inspectMemory)
+
+program
+  .command("history <name>")
+  .description("Show recent activity timeline for a persona")
+  .option("-s, --sessions <n>", "Number of sessions to show", "5")
+  .option("-v, --verbose", "Show full content")
+  .action(showHistory)
 
 program
   .command("install-heartbeat <name>")
