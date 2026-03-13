@@ -1,20 +1,21 @@
 import { execSync, spawn, type ChildProcess } from "node:child_process"
-import { existsSync, watchFile, unwatchFile } from "node:fs"
+import { existsSync, unwatchFile } from "node:fs"
 import chalk from "chalk"
 import { loadPersona } from "../persona/loader.js"
-import { loadPersonaEnv } from "../utils/config.js"
 import { isContainerized, isDockerAvailable } from "../runtime/container.js"
 import { generateComposeFile, getProjectDir } from "../runtime/compose-generator.js"
-import { writeTunnelConfig, cleanupTunnelConfig } from "../telegram/tunnel.js"
+import { cleanupTunnelConfig } from "../telegram/tunnel.js"
 import { connectToPersona } from "../runtime/ipc-client.js"
 import { socketPath } from "../runtime/ipc-server.js"
+import { reconcileTelegram } from "../infra/reconciler.js"
 
-interface ServeOptions {
+interface StartOptions {
   port?: string
-  cli?: boolean  // --no-cli sets this to false
+  cli?: boolean      // --no-cli sets to false
+  detached?: boolean  // -d flag
 }
 
-export async function servePersona(name: string, options: ServeOptions): Promise<void> {
+export async function startPersona(name: string, options: StartOptions): Promise<void> {
   const port = parseInt(options.port ?? "3100", 10)
 
   // 1. Load persona config
@@ -33,46 +34,56 @@ export async function servePersona(name: string, options: ServeOptions): Promise
     return
   }
 
-  const token = persona.telegram?.bot_token
-  if (!token) {
-    console.log(chalk.dim(`No Telegram bot token configured for "${name}". Running in IPC/CLI mode only.`))
+  // 2. Reconcile Telegram infrastructure from YAML
+  let tunnelConfigDir: string | undefined
+  let webhookUrl: string | undefined
+
+  const hasTelegramConfig = persona.telegram?.bot_token && persona.telegram?.tunnel?.hostname
+
+  if (persona.container?.enabled) {
+    // Container mode: reconcile tunnel infrastructure
+    try {
+      const result = await reconcileTelegram(name, persona, port)
+      tunnelConfigDir = result.tunnelConfigDir
+      webhookUrl = result.webhookUrl
+    } catch (err) {
+      console.error(chalk.red(`Infrastructure reconciliation failed: ${(err as Error).message}`))
+      process.exit(1)
+    }
+  } else if (hasTelegramConfig) {
+    console.log(chalk.yellow("Telegram requires container mode for webhook reachability."))
+    console.log(chalk.dim("Set container.enabled: true in persona.yaml to use Telegram."))
   }
 
-  // 2. Ensure Docker is available
+  // 3. Choose runtime mode
+  if (persona.container?.enabled) {
+    await startContainerMode(name, persona, port, options, tunnelConfigDir, webhookUrl)
+  } else {
+    await startLocalMode(name, persona)
+  }
+}
+
+async function startContainerMode(
+  name: string,
+  persona: ReturnType<typeof loadPersona>,
+  port: number,
+  options: StartOptions,
+  tunnelConfigDir?: string,
+  webhookUrl?: string,
+): Promise<void> {
   if (!isDockerAvailable()) {
     console.error(chalk.red("Docker is not running. Start Docker Desktop or install Docker."))
     process.exit(1)
   }
 
-  // 3. Resolve tunnel config
-  const personaEnv = loadPersonaEnv(name)
-  const tunnelToken = personaEnv.CLOUDFLARE_TUNNEL_TOKEN ?? process.env.CLOUDFLARE_TUNNEL_TOKEN
-  const tunnelConfig = persona.telegram?.tunnel
-
-  let tunnelConfigDir: string | undefined
-  let webhookUrl: string | undefined
-
-  if (tunnelToken && tunnelConfig) {
-    console.log(chalk.dim(`Writing tunnel config for ${tunnelConfig.hostname}...`))
-    const result = writeTunnelConfig(
-      tunnelToken,
-      tunnelConfig.hostname,
-      `http://engine:${port}`,
-    )
-    tunnelConfigDir = result.dir
-    webhookUrl = `https://${tunnelConfig.hostname}`
-  } else if (token) {
-    console.log(chalk.yellow("Telegram bot token found but no tunnel configured. Telegram won't work without a tunnel."))
-    console.log(chalk.dim("Run `persona setup-telegram` to configure a Cloudflare tunnel."))
-  }
-
-  // 4. Generate docker-compose file
+  // Generate docker-compose file
   const composePath = generateComposeFile({
     name,
     persona,
     port,
     tunnelConfigDir,
     webhookUrl,
+    detached: options.detached,
   })
 
   const projectDir = getProjectDir()
@@ -81,7 +92,7 @@ export async function servePersona(name: string, options: ServeOptions): Promise
 
   console.log(chalk.dim("Building and starting containers..."))
 
-  // 5. Build and start the stack
+  // Build and start the stack
   try {
     execSync(
       `docker compose ${composeArgs.join(" ")} up -d --build`,
@@ -99,7 +110,17 @@ export async function servePersona(name: string, options: ServeOptions): Promise
     console.log(chalk.dim(`Webhook: ${webhookUrl}/webhook/${name}`))
   }
 
-  // 6. Wait for IPC socket
+  // Detached mode: print status and exit
+  if (options.detached) {
+    console.log(chalk.green(`\n${persona.name} deployed successfully.`))
+    console.log(chalk.dim(`Stop with: docker compose ${composeArgs.join(" ")} down`))
+    if (tunnelConfigDir) {
+      console.log(chalk.dim(`Tunnel config: ${tunnelConfigDir} (do not delete while running)`))
+    }
+    return
+  }
+
+  // Wait for IPC socket
   const sockPath = socketPath(name)
   console.log(chalk.dim("Waiting for engine to start..."))
   try {
@@ -113,7 +134,7 @@ export async function servePersona(name: string, options: ServeOptions): Promise
 
   console.log(chalk.bold(`\n${persona.name} is live.\n`))
 
-  // 7. Cleanup on exit
+  // Cleanup on exit
   let logsProcess: ChildProcess | null = null
 
   const cleanup = () => {
@@ -130,7 +151,7 @@ export async function servePersona(name: string, options: ServeOptions): Promise
   process.on("SIGINT", cleanup)
   process.on("SIGTERM", cleanup)
 
-  // 8. CLI mode or log tailing
+  // CLI mode or log tailing
   if (options.cli !== false) {
     connectToPersona(name)
   } else {
@@ -142,6 +163,14 @@ export async function servePersona(name: string, options: ServeOptions): Promise
     )
     await new Promise(() => {}) // block forever
   }
+}
+
+async function startLocalMode(
+  name: string,
+  persona: ReturnType<typeof loadPersona>,
+): Promise<void> {
+  const { startChat } = await import("../runtime/conversation.js")
+  await startChat(persona)
 }
 
 /**
@@ -159,7 +188,6 @@ function waitForSocket(sockPath: string, timeoutMs = 60000): Promise<void> {
       reject(new Error("Timed out waiting for engine socket"))
     }, timeoutMs)
 
-    // Poll every second since fs.watchFile is more reliable for new files
     const interval = setInterval(() => {
       if (existsSync(sockPath)) {
         clearTimeout(timeout)

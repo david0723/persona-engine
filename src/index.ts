@@ -3,14 +3,12 @@
 import { Command } from "commander"
 import { createPersona } from "./commands/create.js"
 import { listPersonas } from "./commands/list.js"
-import { chatWithPersona } from "./commands/chat.js"
 import { heartbeatCommand } from "./commands/heartbeat.js"
 import { inspectMemory } from "./commands/memory.js"
 import { installHeartbeat } from "./commands/install-heartbeat.js"
-import { servePersona } from "./commands/serve.js"
-import { deployPersona } from "./commands/deploy.js"
+import { startPersona } from "./commands/start.js"
 import { attachToPersona } from "./commands/attach.js"
-import { setupTelegram } from "./commands/setup-telegram.js"
+import { renamePersona } from "./commands/rename.js"
 
 const program = new Command()
   .name("persona")
@@ -29,9 +27,12 @@ program
   .action(listPersonas)
 
 program
-  .command("chat <name>")
-  .description("Chat with a persona")
-  .action(chatWithPersona)
+  .command("start <name>")
+  .description("Start a persona (syncs infrastructure from YAML)")
+  .option("-p, --port <port>", "Webhook server port", "3100")
+  .option("--no-cli", "No CLI input (headless/Telegram only)")
+  .option("-d, --detached", "Run in background, don't attach CLI")
+  .action(startPersona)
 
 program
   .command("heartbeat <name>")
@@ -52,29 +53,24 @@ program
   .action(installHeartbeat)
 
 program
-  .command("serve <name>")
-  .description("Start persona with CLI + Telegram (requires TELEGRAM_BOT_TOKEN)")
-  .option("-p, --port <port>", "Webhook server port", "3100")
-  .option("--no-cli", "Telegram only, no CLI input")
-  .action(servePersona)
-
-program
   .command("attach <name>")
   .description("Attach to a running persona's session")
   .action(attachToPersona)
 
 program
-  .command("deploy <name>")
-  .description("Build and deploy persona as a Docker container")
-  .option("--webhook-url <url>", "External webhook URL for Telegram")
-  .option("-p, --port <port>", "Container port", "3100")
-  .option("--with-supervisor", "Show systemd supervisor setup instructions")
-  .action(deployPersona)
+  .command("rename <old> <new>")
+  .description("Rename a persona (data dir, config, and infrastructure)")
+  .action(renamePersona)
+
+// Hidden backward-compat aliases
+program
+  .command("serve <name>", { hidden: true })
+  .option("-p, --port <port>", "Webhook server port", "3100")
+  .option("--no-cli", "No CLI input")
+  .action(startPersona)
 
 program
-  .command("setup-telegram <name>")
-  .description("Provision a Cloudflare tunnel and configure Telegram for a persona")
-  .option("-d, --domain <domain>", "Base domain for tunnel hostname", "davidkarolina.com")
-  .action(setupTelegram)
+  .command("chat <name>", { hidden: true })
+  .action((name: string) => startPersona(name, {}))
 
 program.parse()

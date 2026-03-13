@@ -61,7 +61,7 @@ export function generateComposeFile(opts: ComposeOptions): string {
   // Engine service
   const engine: ComposeService = {
     build: ".",
-    command: ["serve", name, "--no-cli", "--port", String(port)],
+    command: ["start", name, "--no-cli", "--port", String(port)],
     volumes: [
       // Bind-mount persona data dir for IPC socket + memory DB access
       `${personaDir}:/home/persona/.persona-engine/personas/${name}`,

@@ -8,7 +8,7 @@ export async function attachToPersona(name: string): Promise<void> {
 
   if (!existsSync(sockPath)) {
     console.error(chalk.red(`No running instance of "${name}" found.`))
-    console.error(chalk.dim(`Start it first: persona serve ${name}`))
+    console.error(chalk.dim(`Start it first: persona start ${name}`))
     process.exit(1)
   }
 

@@ -23,7 +23,7 @@ export function connectToPersona(personaName: string): void {
         chalk.red(`No running instance of "${personaName}" found.`),
       )
       console.error(
-        chalk.dim(`Start it first: persona serve ${personaName}`),
+        chalk.dim(`Start it first: persona start ${personaName}`),
       )
     } else if ((err as NodeJS.ErrnoException).code === "ECONNREFUSED") {
       console.error(

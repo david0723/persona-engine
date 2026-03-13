@@ -31,7 +31,7 @@ export OPENAI_API_KEY="..."
 
 ```bash
 persona create my-agent
-persona chat my-agent
+persona start my-agent
 ```
 
 The persona YAML lives at `~/.persona-engine/personas/my-agent/persona.yaml`. Edit it to change identity, backstory, instructions, MCP servers, container config, and permissions.
@@ -46,7 +46,8 @@ The persona YAML lives at `~/.persona-engine/personas/my-agent/persona.yaml`. Ed
 | `src/runtime/engine.ts` | Core runtime that manages the opencode session |
 | `src/runtime/ipc-server.ts` | Unix socket server for `persona attach` |
 | `src/runtime/self-update.ts` | Restart signal writer for self-evolving personas |
-| `src/commands/deploy.ts` | Docker deployment with security hardening |
+| `src/commands/start.ts` | Unified start command (local, container, detached) |
+| `src/infra/reconciler.ts` | YAML-driven infrastructure reconciliation |
 
 ### 5. Rules
 
@@ -107,7 +108,7 @@ persona create architect --template architect  # self-evolving architect (see gu
 ### 5. Test it locally first
 
 ```bash
-persona chat oracle
+persona start oracle
 ```
 
 Have a quick conversation, make sure it responds. Press `Ctrl+D` to exit (this triggers memory summarization).
@@ -157,35 +158,22 @@ container:
 ### 10. Start the persona
 
 ```bash
-persona serve oracle
+persona start oracle
 ```
 
-This does four things:
-1. Starts an opencode session (persistent, not one process per message)
-2. Starts a local webhook server on port 3100
-3. Opens a public tunnel (via cloudflared or localtunnel) to expose the webhook
-4. Registers the webhook URL with Telegram
+What happens depends on the persona's YAML configuration:
 
-You'll see output like:
+**Local mode** (no `container.enabled`): starts an interactive chat session directly.
 
-```
-IPC server started (use `persona attach` to connect)
-Tunnel active: https://abc-xyz.trycloudflare.com
-Telegram webhook registered: https://abc-xyz.trycloudflare.com/webhook/oracle
-oracle is live on Telegram and CLI.
-```
+**Container mode** (`container.enabled: true`): builds and starts Docker containers, waits for the engine, and attaches CLI. If Telegram is configured (bot_token + tunnel.hostname), the tunnel infrastructure is automatically provisioned.
 
-Now open Telegram, find your bot, and send it a message. You should get a response. You can also type in the terminal for a CLI conversation at the same time.
-
-Press `Ctrl+C` to shut down (cleans up webhook, summarizes session).
-
-### Tunnel options
-
-By default, `persona serve` tries [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) first, then falls back to [localtunnel](https://github.com/localtunnel/localtunnel). Install cloudflared for the most reliable experience:
+You can also run in the background with `-d`:
 
 ```bash
-brew install cloudflared
+persona start oracle -d
 ```
+
+Press `Ctrl+C` to shut down (cleans up containers, summarizes session).
 
 ## Commands
 
@@ -193,29 +181,21 @@ brew install cloudflared
 |---|---|
 | `persona create <name>` | Create a new persona from template |
 | `persona create <name> -t architect` | Create using the architect template |
-| `persona chat <name>` | Interactive chat session |
+| `persona start <name>` | Start a persona (syncs infrastructure from YAML) |
 | `persona list` | Show all personas |
-| `persona serve <name>` | Start CLI + Telegram (requires bot token) |
 | `persona attach <name>` | Attach to a running persona's live session |
-| `persona deploy <name>` | Build and deploy as a Docker container |
+| `persona rename <old> <new>` | Rename a persona (data, config, infrastructure) |
 | `persona heartbeat <name>` | Run one autonomous thinking cycle |
 | `persona memory <name>` | Inspect stored memories |
 | `persona install-heartbeat <name>` | Schedule recurring heartbeats via launchd |
 
-### Serve options
+### Start options
 
 ```bash
-persona serve oracle                    # CLI + Telegram on port 3100
-persona serve oracle --port 4000        # Custom port
-persona serve oracle --no-cli           # Telegram only, no CLI input
-```
-
-### Deploy options
-
-```bash
-persona deploy oracle --webhook-url https://my-domain.com
-persona deploy oracle --webhook-url https://my-domain.com --with-supervisor
-persona deploy oracle --webhook-url https://my-domain.com --port 4000
+persona start oracle                    # Local chat or container + CLI
+persona start oracle --port 4000        # Custom port (container mode)
+persona start oracle --no-cli           # Telegram only, no CLI input
+persona start oracle -d                 # Run in background (replaces deploy)
 ```
 
 ### Inspecting memories
@@ -247,7 +227,7 @@ The interval is defined in the persona's YAML (`heartbeat.interval_minutes`). Lo
 
 ```bash
 # Terminal 1
-persona serve oracle
+persona start oracle
 
 # Terminal 2
 persona attach oracle
@@ -356,10 +336,10 @@ For running a persona as a long-lived service (no tunnel needed, direct webhook)
 ### Quick deploy
 
 ```bash
-persona deploy oracle --webhook-url https://your-domain.com
+persona start oracle -d
 ```
 
-This builds the Docker image, generates a compose file, and starts the container.
+This reconciles infrastructure from the YAML, builds the Docker image, generates a compose file, and starts the container in the background.
 
 ### Manual deploy with docker-compose
 
@@ -385,7 +365,7 @@ OPENCODE_API_KEY=your-key
 docker compose up -d
 ```
 
-The container runs `persona serve oracle --no-cli --port 3100` with:
+The container runs `persona start oracle --no-cli --port 3100` with:
 - `PERSONA_ENGINE_CONTAINERIZED=true` (skips Docker-in-Docker)
 - `WEBHOOK_URL` (skips tunnel, uses your domain directly)
 - Your API keys passed through

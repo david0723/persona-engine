@@ -152,9 +152,7 @@ persona.your-domain.com {
 export GITHUB_TOKEN="ghp_your-token-here"
 export GEMINI_API_KEY="your-key-here"
 
-persona deploy architect \
-  --webhook-url https://persona.your-domain.com \
-  --with-supervisor
+persona start architect -d
 ```
 
 This does three things:
