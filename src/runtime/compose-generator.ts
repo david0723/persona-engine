@@ -80,8 +80,7 @@ export function generateComposeFile(opts: ComposeOptions): string {
         },
       },
     },
-    read_only: true,
-    tmpfs: ["/tmp", "/home/persona/.local:mode=1777"],
+    tmpfs: ["/tmp"],
     restart: "unless-stopped",
     ...(webhookUrl ? {
       healthcheck: {
