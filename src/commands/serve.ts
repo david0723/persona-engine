@@ -3,7 +3,7 @@ import { existsSync, watchFile, unwatchFile } from "node:fs"
 import chalk from "chalk"
 import { loadPersona } from "../persona/loader.js"
 import { loadPersonaEnv } from "../utils/config.js"
-import { isDockerAvailable } from "../runtime/container.js"
+import { isContainerized, isDockerAvailable } from "../runtime/container.js"
 import { generateComposeFile, getProjectDir } from "../runtime/compose-generator.js"
 import { writeTunnelConfig, cleanupTunnelConfig } from "../telegram/tunnel.js"
 import { connectToPersona } from "../runtime/ipc-client.js"
@@ -26,11 +26,16 @@ export async function servePersona(name: string, options: ServeOptions): Promise
     process.exit(1)
   }
 
+  // If running inside a container, start the in-container server
+  if (isContainerized()) {
+    const { startContainerServer } = await import("../runtime/container-server.js")
+    await startContainerServer(name, port)
+    return
+  }
+
   const token = persona.telegram?.bot_token
   if (!token) {
-    console.error(chalk.red(`No Telegram bot token configured for "${name}".`))
-    console.error(chalk.dim(`Add it to persona.yaml:\n\n  telegram:\n    enabled: true\n    bot_token: "your-bot-token"\n`))
-    process.exit(1)
+    console.log(chalk.dim(`No Telegram bot token configured for "${name}". Running in IPC/CLI mode only.`))
   }
 
   // 2. Ensure Docker is available
@@ -56,10 +61,9 @@ export async function servePersona(name: string, options: ServeOptions): Promise
     )
     tunnelConfigDir = result.dir
     webhookUrl = `https://${tunnelConfig.hostname}`
-  } else if (!tunnelConfig) {
-    console.error(chalk.red("No tunnel configured. Run `persona setup-telegram` first."))
-    console.error(chalk.dim("A Cloudflare tunnel is required for Docker-based serving."))
-    process.exit(1)
+  } else if (token) {
+    console.log(chalk.yellow("Telegram bot token found but no tunnel configured. Telegram won't work without a tunnel."))
+    console.log(chalk.dim("Run `persona setup-telegram` to configure a Cloudflare tunnel."))
   }
 
   // 4. Generate docker-compose file

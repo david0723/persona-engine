@@ -81,6 +81,15 @@ export function generateComposeFile(opts: ComposeOptions): string {
     read_only: true,
     tmpfs: ["/tmp"],
     restart: "unless-stopped",
+    ...(webhookUrl ? {
+      healthcheck: {
+        test: ["CMD", "curl", "-f", `http://localhost:${port}/health`],
+        interval: "30s",
+        timeout: "5s",
+        retries: 3,
+        start_period: "30s",
+      },
+    } : {}),
   }
 
   const services: Record<string, ComposeService> = { engine }

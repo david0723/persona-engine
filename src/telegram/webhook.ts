@@ -20,6 +20,12 @@ export async function startWebhookServer(
   allowedChatIds?: number[],
 ): Promise<{ server: Server; port: number }> {
   const server = createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" })
+      res.end(JSON.stringify({ status: "ok", uptime: process.uptime() }))
+      return
+    }
+
     if (req.method !== "POST" || !req.url?.startsWith("/webhook")) {
       res.writeHead(404)
       res.end()

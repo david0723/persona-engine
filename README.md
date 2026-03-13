@@ -101,7 +101,7 @@ Two templates are available:
 
 ```bash
 persona create oracle                        # default template (blank-slate character)
-persona create my-architect --template architect  # self-evolving architect (see guide below)
+persona create architect --template architect  # self-evolving architect (see guide below)
 ```
 
 ### 5. Test it locally first

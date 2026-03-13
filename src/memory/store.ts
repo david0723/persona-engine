@@ -11,6 +11,7 @@ export class MemoryStore {
     if (!dbPath) ensurePersonaDir(personaName)
     this.db = new Database(dbPath ?? paths.memoryDb(personaName))
     this.db.pragma("journal_mode = WAL")
+    this.db.pragma("busy_timeout = 5000")
     this.init()
   }
 

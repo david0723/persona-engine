@@ -46,6 +46,7 @@ container:
   cpu_limit: "2.0"
   allowed_env:
     - GEMINI_API_KEY
+    - GOOGLE_API_KEY
     - GITHUB_TOKEN
     - PERSONA_ENGINE_REPO_URL
 
@@ -63,6 +64,8 @@ self_update:
 #   enabled: true
 #   bot_token: "your-bot-token"
 #   allowed_chat_ids: [your_chat_id]
+#   tunnel:
+#     hostname: persona.yourdomain.com
 
 heartbeat:
   enabled: true

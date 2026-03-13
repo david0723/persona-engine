@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from "node:child_process"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { ensureContainer, execInContainer, execInContainerStreaming } from "./container.js"
+import { isContainerized, ensureContainer, execInContainer, execInContainerStreaming } from "./container.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 
 const OPENCODE_BIN = join(homedir(), ".opencode", "bin", "opencode")
@@ -32,6 +32,7 @@ function buildArgs(options: OpenCodeRunOptions): string[] {
 }
 
 function useContainer(persona: PersonaDefinition): boolean {
+  if (isContainerized()) return false
   return persona.container?.enabled === true
 }
 
