@@ -2,7 +2,10 @@ import { mkdirSync, readFileSync, existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-const HOME = process.env.PERSONA_ENGINE_HOME ?? join(homedir(), ".persona-engine")
+let HOME = process.env.PERSONA_ENGINE_HOME ?? join(homedir(), ".persona-engine")
+
+/** @internal Override home for testing. */
+export function _setHomeForTesting(path: string): void { HOME = path }
 
 export const paths = {
   home: HOME,
