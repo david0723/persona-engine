@@ -2,7 +2,7 @@ import Database from "better-sqlite3"
 import { randomUUID } from "node:crypto"
 import { paths, ensurePersonaDir } from "../utils/config.js"
 import { estimateTokens } from "../utils/token-budget.js"
-import type { Memory, MemoryKind } from "./types.js"
+import type { Memory, MemoryKind, SessionInfo } from "./types.js"
 
 export class MemoryStore {
   private db: Database.Database
@@ -107,6 +107,39 @@ export class MemoryStore {
     this.db.prepare(`
       DELETE FROM memories WHERE kind = 'conversation_turn' AND session_id = ?
     `).run(sessionId)
+  }
+
+  getSessionTimeline(limit: number = 10): SessionInfo[] {
+    interface RawRow { session_id: string; first_at: string; last_at: string; kinds: string; record_count: number }
+    const rows = this.db.prepare(`
+      SELECT
+        session_id,
+        MIN(created_at) as first_at,
+        MAX(created_at) as last_at,
+        GROUP_CONCAT(DISTINCT kind) as kinds,
+        COUNT(*) as record_count
+      FROM memories
+      WHERE session_id IS NOT NULL
+      GROUP BY session_id
+      ORDER BY MAX(created_at) DESC
+      LIMIT ?
+    `).all(limit) as RawRow[]
+
+    return rows.map(r => ({
+      sessionId: r.session_id,
+      firstAt: r.first_at,
+      lastAt: r.last_at,
+      kinds: r.kinds.split(",") as MemoryKind[],
+      recordCount: r.record_count,
+    }))
+  }
+
+  getBySession(sessionId: string): Memory[] {
+    return this.db.prepare(`
+      SELECT * FROM memories
+      WHERE session_id = ?
+      ORDER BY created_at ASC
+    `).all(sessionId) as Memory[]
   }
 
   stats(): Record<string, number> {

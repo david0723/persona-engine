@@ -14,3 +14,11 @@ export interface Memory {
   importance: number
   token_estimate: number
 }
+
+export interface SessionInfo {
+  sessionId: string
+  firstAt: string
+  lastAt: string
+  kinds: MemoryKind[]
+  recordCount: number
+}
