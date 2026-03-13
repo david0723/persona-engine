@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { appendFileSync } from "node:fs"
 import { buildSystemPrompt } from "./prompt-builder.js"
 import { writeOpenCodeConfig } from "./opencode-config.js"
-import { openCodeRun } from "./opencode.js"
+import { openCodeRunAsync } from "./opencode.js"
 import { MemoryStore } from "../memory/store.js"
 import { resolveFeatures } from "../persona/loader.js"
 import { paths } from "../utils/config.js"
@@ -47,7 +47,7 @@ If you want to leave a message for your creator, write it to:
   try {
     const message = `${heartbeatPrompt}\n\n---\n\nIt's time for your private reflection. What's on your mind?`
 
-    const output = openCodeRun({
+    const output = await openCodeRunAsync({
       message,
       persona,
       dir: paths.personaDir(persona.name),

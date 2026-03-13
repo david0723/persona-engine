@@ -62,6 +62,10 @@ export function openCodeRun(options: OpenCodeRunOptions): string {
   })
 }
 
+export async function openCodeRunAsync(options: OpenCodeRunOptions): Promise<string> {
+  return openCodeRunStreaming(options, undefined, () => {}, () => {})
+}
+
 export function openCodeRunStreaming(
   options: OpenCodeRunOptions,
   onFirstChunk?: () => void,

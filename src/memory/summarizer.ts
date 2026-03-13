@@ -1,4 +1,4 @@
-import { openCodeRun } from "../runtime/opencode.js"
+import { openCodeRunAsync } from "../runtime/opencode.js"
 import type { MemoryStore } from "./store.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 
@@ -50,7 +50,7 @@ Conversation:
 ${conversationText}`
 
   try {
-    const text = openCodeRun({ message: prompt, persona })
+    const text = await openCodeRunAsync({ message: prompt, persona })
     const parsed = parseSummaryOutput(text)
 
     for (const rel of parsed.relationships) {
