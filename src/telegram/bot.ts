@@ -71,6 +71,106 @@ export function parseUpdate(body: Record<string, unknown>): TelegramMessage | nu
   }
 }
 
+export interface InlineButton {
+  text: string
+  callback_data: string
+}
+
+export interface CallbackQuery {
+  id: string
+  chatId: number
+  messageId: number
+  data: string
+  from: string
+}
+
+/**
+ * Send a message with inline keyboard buttons.
+ * Used for read receipts and feedback on scheduled messages.
+ */
+export async function sendMessageWithButtons(
+  token: string,
+  chatId: number,
+  text: string,
+  buttons: InlineButton[][],
+): Promise<number | null> {
+  const chunks = splitMessage(text, 4000)
+  let lastMessageId: number | null = null
+
+  for (let i = 0; i < chunks.length; i++) {
+    const isLast = i === chunks.length - 1
+    const payload: Record<string, unknown> = {
+      chat_id: chatId,
+      text: chunks[i],
+      parse_mode: "Markdown",
+    }
+    // Only add buttons to the last chunk
+    if (isLast && buttons.length > 0) {
+      payload.reply_markup = { inline_keyboard: buttons }
+    }
+
+    const res = await fetch(`${API_BASE}${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+
+    const data = await res.json() as { ok: boolean; result?: { message_id: number }; description?: string }
+    if (!data.ok && data.description?.includes("parse")) {
+      // Retry without Markdown
+      delete payload.parse_mode
+      const retryRes = await fetch(`${API_BASE}${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const retryData = await retryRes.json() as { ok: boolean; result?: { message_id: number } }
+      if (retryData.ok) lastMessageId = retryData.result?.message_id ?? null
+    } else if (data.ok) {
+      lastMessageId = data.result?.message_id ?? null
+    }
+  }
+
+  return lastMessageId
+}
+
+/**
+ * Answer a callback query (acknowledges button press in Telegram UI).
+ */
+export async function answerCallbackQuery(token: string, callbackQueryId: string, text?: string): Promise<void> {
+  await fetch(`${API_BASE}${token}/answerCallbackQuery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      callback_query_id: callbackQueryId,
+      text: text ?? "Noted!",
+    }),
+  })
+}
+
+/**
+ * Parse a callback query from a Telegram update.
+ */
+export function parseCallbackQuery(body: Record<string, unknown>): CallbackQuery | null {
+  const cq = body.callback_query as Record<string, unknown> | undefined
+  if (!cq) return null
+
+  const data = cq.data as string | undefined
+  if (!data) return null
+
+  const message = cq.message as Record<string, unknown> | undefined
+  const chat = message?.chat as Record<string, unknown> | undefined
+  const from = cq.from as Record<string, unknown> | undefined
+
+  return {
+    id: cq.id as string,
+    chatId: (chat?.id as number) ?? 0,
+    messageId: (message?.message_id as number) ?? 0,
+    data,
+    from: (from?.first_name as string) ?? "Unknown",
+  }
+}
+
 export async function sendChatAction(token: string, chatId: number, action = "typing"): Promise<void> {
   await fetch(`${API_BASE}${token}/sendChatAction`, {
     method: "POST",

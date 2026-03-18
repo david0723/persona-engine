@@ -6,7 +6,7 @@ import { openCodeRunAsync } from "./opencode.js"
 import { MemoryStore } from "../memory/store.js"
 import { resolveFeatures } from "../persona/loader.js"
 import { paths } from "../utils/config.js"
-import { sendMessage } from "../telegram/bot.js"
+import { sendMessage, sendMessageWithButtons } from "../telegram/bot.js"
 import { createMetricsLogger } from "../vault/metrics.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 
@@ -84,9 +84,15 @@ If you want to leave a message for your creator, write it to:
     if (notifyMode === "telegram" && output.trim() && persona.telegram?.enabled && persona.telegram.bot_token) {
       const truncated = output.trim().slice(0, 4000)
       const chatIds = persona.telegram.allowed_chat_ids ?? []
+      const feedbackButtons = [
+        [
+          { text: "Got it", callback_data: "ack" },
+          { text: "Not useful", callback_data: "not_useful" },
+        ],
+      ]
       for (const chatId of chatIds) {
         try {
-          await sendMessage(persona.telegram.bot_token, chatId, truncated)
+          await sendMessageWithButtons(persona.telegram.bot_token, chatId, truncated, feedbackButtons)
         } catch (err) {
           log(logPath, `Telegram notify error (chat ${chatId}): ${(err as Error).message}`)
         }

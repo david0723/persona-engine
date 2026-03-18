@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { writeFileSync, mkdirSync, existsSync } from "node:fs"
 import { join } from "node:path"
-import { parseUpdate, sendMessage, sendChatAction } from "./bot.js"
+import { parseUpdate, parseCallbackQuery, sendMessage, sendChatAction, answerCallbackQuery } from "./bot.js"
 import type { ConversationEngine } from "../runtime/engine.js"
 import { createMetricsLogger, type MetricsLogger } from "../vault/metrics.js"
 import { handleSlashCommand } from "./commands.js"
@@ -88,6 +88,13 @@ async function handleUpdate(
     return
   }
 
+  // Handle callback queries (button presses on inline keyboards)
+  const callback = parseCallbackQuery(parsed)
+  if (callback) {
+    await handleCallbackQuery(token, callback, metrics)
+    return
+  }
+
   const message = parseUpdate(parsed)
   if (!message) return
 
@@ -161,5 +168,26 @@ async function handleUpdate(
     console.error(`Error processing Telegram message: ${errMsg}`)
     await sendMessage(token, message.chatId, "Something went wrong while processing your message.")
     metrics?.logTelegram(message.text, "error", Date.now() - startTime, errMsg)
+  }
+}
+
+async function handleCallbackQuery(
+  token: string,
+  callback: { id: string; chatId: number; data: string; from: string },
+  metrics?: MetricsLogger | null,
+): Promise<void> {
+  const { id, data, from } = callback
+
+  switch (data) {
+    case "ack":
+      await answerCallbackQuery(token, id, "Got it!")
+      metrics?.log({ source: "telegram", label: `${from} acknowledged scheduled message`, outcome: "ok" })
+      break
+    case "not_useful":
+      await answerCallbackQuery(token, id, "Feedback noted")
+      metrics?.log({ source: "telegram", label: `${from} marked scheduled message as not useful`, outcome: "ok" })
+      break
+    default:
+      await answerCallbackQuery(token, id)
   }
 }
