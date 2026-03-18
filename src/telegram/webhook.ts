@@ -145,10 +145,12 @@ async function handleUpdate(
 
   const startTime = Date.now()
   try {
-    // If it's a brain dump, augment the message so the AI processes it as such
-    const messageText = isBrainDump && engine.persona.vault?.enabled
-      ? `[BRAIN DUMP from Telegram - already saved to Inbox/] Process this brain dump: extract tasks, ideas, and any actionable items. Then send me a summary.\n\n${message.text}`
-      : message.text
+    // If it's a brain dump, pre-classify and add vault context
+    let messageText = message.text
+    if (isBrainDump && engine.persona.vault?.enabled) {
+      const context = await buildBrainDumpContext(message.text, engine)
+      messageText = `[BRAIN DUMP from Telegram - already saved to Inbox/]\n${context}\n\nProcess this brain dump: extract tasks, ideas, and any actionable items. Then send me a summary.\n\n${message.text}`
+    }
 
     const response = await engine.handleMessage(messageText, {
       type: "telegram",
@@ -169,6 +171,50 @@ async function handleUpdate(
     await sendMessage(token, message.chatId, "Something went wrong while processing your message.")
     metrics?.logTelegram(message.text, "error", Date.now() - startTime, errMsg)
   }
+}
+
+/**
+ * Pre-classify a brain dump and find related vault content.
+ * Returns context string to prepend to the processing prompt.
+ */
+async function buildBrainDumpContext(text: string, engine: ConversationEngine): Promise<string> {
+  const parts: string[] = []
+
+  // Pre-classify the content
+  const hasDate = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week|deadline|due|by \w+day)\b/i.test(text)
+  const hasEmotion = /\b(feel|feeling|stressed|happy|worried|excited|frustrated|grateful|anxious|overwhelmed)\b/i.test(text)
+  const hasTasks = /\b(need to|should|must|have to|todo|task|action|do this|remember to)\b/i.test(text)
+
+  const hints: string[] = []
+  if (hasDate) hints.push("Contains dates/deadlines - prioritize task extraction with due dates")
+  if (hasEmotion) hints.push("Contains emotional/reflective content - extract journal entry")
+  if (hasTasks) hints.push("Contains action items - extract as tasks with priorities")
+  if (!hasDate && !hasEmotion && !hasTasks) hints.push("General brain dump - categorize freely")
+
+  if (hints.length > 0) {
+    parts.push(`Classification hints:\n${hints.map(h => `- ${h}`).join("\n")}`)
+  }
+
+  // Find related vault content via semantic search
+  try {
+    const { searchVault } = await import("../vault/search.js")
+    const db = engine.memoryStore.getDb()
+    // Use the first 200 chars as search query
+    const query = text.slice(0, 200)
+    const results = await searchVault(query, db, 3)
+
+    if (results.length > 0 && results[0].similarity > 0.3) {
+      const related = results
+        .filter(r => r.similarity > 0.3)
+        .map(r => `- [${(r.similarity * 100).toFixed(0)}%] ${r.filePath}: ${r.title}`)
+        .join("\n")
+      parts.push(`Related vault content (consider when filing):\n${related}`)
+    }
+  } catch {
+    // Vault search unavailable, continue without context
+  }
+
+  return parts.length > 0 ? parts.join("\n\n") : ""
 }
 
 async function handleCallbackQuery(
