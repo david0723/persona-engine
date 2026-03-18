@@ -4,12 +4,17 @@ export interface PersonaIdentity {
   values: string[]
 }
 
+export type NotifyMode = "telegram" | "silent" | "vault-only"
+
 export interface HeartbeatConfig {
   enabled: boolean
   interval_minutes: number
   activities: string[]
   prompt?: string  // Custom heartbeat prompt framing. Replaces default reflection framing.
-  notify?: boolean // Send heartbeat results to Telegram. Default: false.
+  notify?: boolean | NotifyMode // Send heartbeat results to Telegram. Default: false.
+  // When notify is a NotifyMode string: "telegram" sends to Telegram,
+  // "silent" runs but doesn't notify, "vault-only" writes to vault only.
+  // Boolean true = "telegram", false = "silent".
 }
 
 export interface McpServerLocal {

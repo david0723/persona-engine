@@ -75,8 +75,13 @@ If you want to leave a message for your creator, write it to:
       store.addMemory("journal_entry", `[Heartbeat reflection] ${output.trim().slice(0, 2000)}`, 6, sessionId)
     }
 
+    // Determine notification mode
+    const notifyMode = typeof persona.heartbeat.notify === "string"
+      ? persona.heartbeat.notify
+      : persona.heartbeat.notify ? "telegram" : "silent"
+
     // Proactive Telegram notification
-    if (persona.heartbeat.notify && output.trim() && persona.telegram?.enabled && persona.telegram.bot_token) {
+    if (notifyMode === "telegram" && output.trim() && persona.telegram?.enabled && persona.telegram.bot_token) {
       const truncated = output.trim().slice(0, 4000)
       const chatIds = persona.telegram.allowed_chat_ids ?? []
       for (const chatId of chatIds) {
