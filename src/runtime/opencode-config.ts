@@ -11,6 +11,7 @@ interface OpenCodeConfig {
   instructions?: string[]
   mcp?: Record<string, unknown>
   permission?: Record<string, string>
+  plugin?: Record<string, string>
 }
 
 export function writeOpenCodeConfig(persona: PersonaDefinition): string {
@@ -52,21 +53,28 @@ export function writeOpenCodeConfig(persona: PersonaDefinition): string {
     }
   }
 
-  // Auto-inject vault search MCP server when vault is enabled
+  // Auto-inject vault tools when vault is enabled
   if (persona.vault?.enabled) {
     const vaultPath = persona.vault.path ?? "/home/persona/vault"
     const dbPath = persona.vault.path
       ? join(persona.vault.path, "..", ".vault-search.db")
       : "/home/persona/.vault-search.db"
+    const distDir = dirname(fileURLToPath(import.meta.url))
+
+    // MCP server for vault search (fallback for older opencode versions)
     config.mcp = config.mcp ?? {}
     config.mcp["vault-search"] = {
       type: "local",
-      command: ["node", join(dirname(fileURLToPath(import.meta.url)), "..", "vault", "mcp-server.js")],
+      command: ["node", join(distDir, "..", "vault", "mcp-server.js")],
       environment: {
         VAULT_PATH: vaultPath,
         VAULT_DB_PATH: dbPath,
       },
     }
+
+    // OpenCode plugin for native tools + compaction hook
+    config.plugin = config.plugin ?? {}
+    config.plugin["vault"] = join(distDir, "..", "vault", "opencode-plugin.js")
   }
 
   // If containerized and no explicit permissions, default to full autonomy inside cage
