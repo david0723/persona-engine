@@ -23,6 +23,7 @@ export interface OpenCodeRunOptions {
   model?: string
   title?: string
   attachUrl?: string  // URL of running opencode server to attach to
+  agent?: string      // OpenCode agent name to use (e.g. "brain-dump-processor")
 }
 
 function buildArgs(options: OpenCodeRunOptions): string[] {
@@ -34,6 +35,7 @@ function buildArgs(options: OpenCodeRunOptions): string[] {
   if (options.model) args.push("--model", options.model)
   if (options.title) args.push("--title", options.title)
   if (options.attachUrl) args.push("--attach", options.attachUrl)
+  if (options.agent) args.push("--agent", options.agent)
 
   args.push(options.message)
 

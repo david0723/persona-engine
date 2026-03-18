@@ -6,12 +6,19 @@ import { buildSystemPrompt } from "./prompt-builder.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 import type { MemoryStore } from "../memory/store.js"
 
+interface AgentConfig {
+  mode?: "primary" | "subagent"
+  prompt?: string
+  tools?: Record<string, boolean>
+}
+
 interface OpenCodeConfig {
   $schema: string
   instructions?: string[]
   mcp?: Record<string, unknown>
   permission?: Record<string, string>
   plugin?: Record<string, string>
+  agent?: Record<string, AgentConfig>
 }
 
 export function writeOpenCodeConfig(persona: PersonaDefinition): string {
@@ -75,6 +82,43 @@ export function writeOpenCodeConfig(persona: PersonaDefinition): string {
     // OpenCode plugin for native tools + compaction hook
     config.plugin = config.plugin ?? {}
     config.plugin["vault"] = join(distDir, "..", "vault", "opencode-plugin.js")
+
+    // Task-specific subagents for vault operations
+    config.agent = {
+      "brain-dump-processor": {
+        mode: "subagent",
+        prompt: `You are a brain dump processor. Your job is to take raw, unstructured brain dumps and extract:
+1. **Tasks** - actionable items with priorities. Add to Todos/Active.md.
+2. **Ideas** - things worth exploring later. Add to Ideas/.
+3. **Journal entries** - reflections or emotional content. Add to Journal/.
+4. **Project notes** - content related to existing projects. File under the relevant project.
+
+Always read INDEX.md first to know which projects exist.
+Catalog the raw content first, then process it. Never lose information.`,
+        tools: { write: true, edit: true, bash: false },
+      },
+      "journal-writer": {
+        mode: "subagent",
+        prompt: `You are a journal writer. Keep the user's voice and tone.
+Don't over-structure entries. Add a timestamp heading for each entry.
+Write to Journal/YYYY-MM-DD.md. Create the file if it doesn't exist.
+Be reflective but genuine - don't add fluff.`,
+        tools: { write: true, edit: true, bash: false },
+      },
+      "todo-manager": {
+        mode: "subagent",
+        prompt: `You are a task manager. Your job is to:
+1. Read Todos/Active.md and understand current tasks
+2. Add new tasks with appropriate priority (High/Normal/Low)
+3. Check for duplicates before adding
+4. Include the source in parentheses
+5. Mark completed tasks with [x]
+6. Move completed tasks to Archive/Todos/ periodically
+
+Always read the SKILL.md and COMMAND.md in Todos/ first.`,
+        tools: { write: true, edit: true, bash: false },
+      },
+    }
   }
 
   // If containerized and no explicit permissions, default to full autonomy inside cage
