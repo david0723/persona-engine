@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { join, resolve, dirname } from "node:path"
+import { fileURLToPath } from "node:url"
 import { paths, ensurePersonaDir } from "../utils/config.js"
 import { buildSystemPrompt } from "./prompt-builder.js"
 import type { PersonaDefinition } from "../persona/schema.js"
@@ -48,6 +49,23 @@ export function writeOpenCodeConfig(persona: PersonaDefinition): string {
         command: ["npx", "-y", "@modelcontextprotocol/server-brave-search"],
         environment: { BRAVE_API_KEY: braveApiKey },
       }
+    }
+  }
+
+  // Auto-inject vault search MCP server when vault is enabled
+  if (persona.vault?.enabled) {
+    const vaultPath = persona.vault.path ?? "/home/persona/vault"
+    const dbPath = persona.vault.path
+      ? join(persona.vault.path, "..", ".vault-search.db")
+      : "/home/persona/.vault-search.db"
+    config.mcp = config.mcp ?? {}
+    config.mcp["vault-search"] = {
+      type: "local",
+      command: ["node", join(dirname(fileURLToPath(import.meta.url)), "..", "vault", "mcp-server.js")],
+      environment: {
+        VAULT_PATH: vaultPath,
+        VAULT_DB_PATH: dbPath,
+      },
     }
   }
 
