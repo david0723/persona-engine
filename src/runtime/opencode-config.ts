@@ -16,9 +16,19 @@ export function writeOpenCodeConfig(persona: PersonaDefinition): string {
   ensurePersonaDir(persona.name)
   const configPath = join(paths.personaDir(persona.name), "opencode.json")
 
+  const instructions = ["INSTRUCTIONS.md"]
+
+  // When vault is enabled, load all SKILL.md files and preferences as instructions
+  // so the AI always knows project conventions without reading files first
+  if (persona.vault?.enabled) {
+    const vaultPath = persona.vault.path ?? "/home/persona/vault"
+    instructions.push(`${vaultPath}/*/SKILL.md`)
+    instructions.push(`${vaultPath}/Preferences/preferences.md`)
+  }
+
   const config: OpenCodeConfig = {
     $schema: "https://opencode.ai/config.json",
-    instructions: ["INSTRUCTIONS.md"],
+    instructions,
   }
 
   if (persona.mcp_servers && Object.keys(persona.mcp_servers).length > 0) {
