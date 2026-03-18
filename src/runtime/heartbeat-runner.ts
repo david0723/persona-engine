@@ -7,6 +7,7 @@ import { MemoryStore } from "../memory/store.js"
 import { resolveFeatures } from "../persona/loader.js"
 import { paths } from "../utils/config.js"
 import { sendMessage } from "../telegram/bot.js"
+import { createMetricsLogger } from "../vault/metrics.js"
 import type { PersonaDefinition } from "../persona/schema.js"
 
 export async function runHeartbeat(persona: PersonaDefinition): Promise<void> {
@@ -47,9 +48,13 @@ If you want to leave a message for your creator, write it to:
 
   const heartbeatPrompt = `${basePrompt}\n\n---\n\n${heartbeatSection}`
 
+  const vaultPath = persona.vault?.enabled ? persona.vault.path : undefined
+  const metrics = createMetricsLogger(vaultPath)
+
   const timestamp = new Date().toISOString()
   log(logPath, `\n--- Heartbeat: ${timestamp} ---\n`)
 
+  const startTime = Date.now()
   try {
     const kickoff = persona.heartbeat.prompt
       ? "Execute your heartbeat tasks now."
@@ -84,8 +89,10 @@ If you want to leave a message for your creator, write it to:
     }
 
     log(logPath, `--- End heartbeat ---\n`)
+    metrics?.logHeartbeat("ok", Date.now() - startTime)
   } catch (err) {
     log(logPath, `ERROR: ${(err as Error).message}`)
+    metrics?.logHeartbeat("error", Date.now() - startTime, (err as Error).message)
   } finally {
     store.close()
   }

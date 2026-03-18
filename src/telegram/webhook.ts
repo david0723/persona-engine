@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { parseUpdate, sendMessage, sendChatAction } from "./bot.js"
 import type { ConversationEngine } from "../runtime/engine.js"
+import { createMetricsLogger, type MetricsLogger } from "../vault/metrics.js"
 
 const BRAIN_DUMP_KEYWORDS = /\bbrain\s*dump\b|\bdump\b/i
 const BRAIN_DUMP_MIN_LENGTH = 500
@@ -24,6 +25,10 @@ export async function startWebhookServer(
   preferredPort: number,
   allowedChatIds?: number[],
 ): Promise<{ server: Server; port: number }> {
+  // Initialize metrics logger if vault is enabled
+  const vaultPath = engine.persona.vault?.enabled ? engine.persona.vault.path : undefined
+  const metrics = createMetricsLogger(vaultPath)
+
   const server = createServer((req, res) => {
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" })
@@ -46,7 +51,7 @@ export async function startWebhookServer(
       res.end(JSON.stringify({ ok: true }))
 
       // Process async
-      handleUpdate(engine, token, body, allowedChatIds).catch(err => {
+      handleUpdate(engine, token, body, allowedChatIds, metrics).catch(err => {
         console.error(`Telegram handler error: ${(err as Error).message}`)
       })
     })
@@ -73,6 +78,7 @@ async function handleUpdate(
   token: string,
   rawBody: string,
   allowedChatIds?: number[],
+  metrics?: MetricsLogger | null,
 ): Promise<void> {
   let parsed: Record<string, unknown>
   try {
@@ -119,6 +125,7 @@ async function handleUpdate(
   }, 4000)
   await sendChatAction(token, message.chatId).catch(() => {})
 
+  const startTime = Date.now()
   try {
     // If it's a brain dump, augment the message so the AI processes it as such
     const messageText = isBrainDump && engine.persona.vault?.enabled
@@ -135,9 +142,13 @@ async function handleUpdate(
     if (response) {
       await sendMessage(token, message.chatId, response)
     }
+
+    metrics?.logTelegram(message.text, "ok", Date.now() - startTime)
   } catch (err) {
     clearInterval(typingInterval)
-    console.error(`Error processing Telegram message: ${(err as Error).message}`)
+    const errMsg = (err as Error).message
+    console.error(`Error processing Telegram message: ${errMsg}`)
     await sendMessage(token, message.chatId, "Something went wrong while processing your message.")
+    metrics?.logTelegram(message.text, "error", Date.now() - startTime, errMsg)
   }
 }
