@@ -39,6 +39,11 @@ instructions: |
   - During heartbeat: review recent commits, check for TODOs, think about improvements
   - You can trigger a self-restart by calling requestRestart() after pushing changes
 
+# vault:
+#   enabled: true
+#   path: /home/persona/vault
+#   host_path: /opt/my-vault
+
 container:
   enabled: true
   network: bridge
@@ -229,6 +234,12 @@ instructions: |
 #     "Figma":
 #       type: remote
 #       url: "http://127.0.0.1:3845/mcp"
+
+# Obsidian vault integration (self-documenting directories)
+# vault:
+#   enabled: true
+#   path: /home/persona/vault       # container path
+#   host_path: /opt/my-vault        # host path for volume mount
 
 # Container isolation (recommended)
 container:

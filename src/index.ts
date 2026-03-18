@@ -10,6 +10,7 @@ import { startPersona } from "./commands/start.js"
 import { attachToPersona } from "./commands/attach.js"
 import { renamePersona } from "./commands/rename.js"
 import { showHistory } from "./commands/history.js"
+import { vaultSearch, vaultIndex } from "./commands/vault.js"
 
 const program = new Command()
   .name("persona")
@@ -71,6 +72,21 @@ program
   .command("rename <old> <new>")
   .description("Rename a persona (data dir, config, and infrastructure)")
   .action(renamePersona)
+
+const vault = program
+  .command("vault")
+  .description("Vault operations (search, index)")
+
+vault
+  .command("search <name> <query>")
+  .description("Semantic search across a persona's vault")
+  .option("-k, --top-k <n>", "Number of results", "5")
+  .action(vaultSearch)
+
+vault
+  .command("index <name>")
+  .description("Index (or re-index) a persona's vault")
+  .action(vaultIndex)
 
 // Hidden backward-compat aliases
 program

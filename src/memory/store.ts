@@ -15,6 +15,11 @@ export class MemoryStore {
     this.init()
   }
 
+  /** Expose the underlying database for shared use (e.g., vault indexing). */
+  getDb(): Database.Database {
+    return this.db
+  }
+
   private init(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS memories (

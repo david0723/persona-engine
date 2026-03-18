@@ -1,6 +1,6 @@
 import { estimateTokens, DEFAULT_BUDGET } from "../utils/token-budget.js"
 import { resolveFeatures } from "../persona/loader.js"
-import type { PersonaDefinition } from "../persona/schema.js"
+import type { PersonaDefinition, VaultConfig } from "../persona/schema.js"
 import type { MemoryStore } from "../memory/store.js"
 import type { Memory } from "../memory/types.js"
 
@@ -37,6 +37,11 @@ export function buildSystemPrompt(persona: PersonaDefinition, store: MemoryStore
     if (summaries.length > 0) {
       sections.push(buildSummaryLayer(summaries))
     }
+  }
+
+  // Layer 5: Vault
+  if (persona.vault?.enabled) {
+    sections.push(buildVaultLayer(persona.vault))
   }
 
   return sections.join("\n\n---\n\n")
@@ -87,6 +92,40 @@ function buildSummaryLayer(summaries: Memory[]): string {
   })
 
   return `## Previous conversations\n${entries.join("\n\n")}`
+}
+
+function buildVaultLayer(vault: VaultConfig): string {
+  const vaultPath = vault.path ?? "/home/persona/vault"
+  return `## Obsidian Vault
+You have read-write access to the user's Obsidian vault at ${vaultPath}.
+This vault syncs in real-time to their devices via Syncthing.
+
+### How the vault works
+- Read \`${vaultPath}/INDEX.md\` to see all available projects
+- Each top-level directory is a "project" with its own SKILL.md
+- When working in a project, ALWAYS read its SKILL.md first
+- Some projects have a COMMAND.md listing specific operations
+- You maintain INDEX.md - update it when creating/removing projects
+
+### Creating new projects
+When the user asks you to track something new:
+1. Create a new directory at the vault root
+2. Write a SKILL.md (purpose, file layout, conventions)
+3. Optionally write a COMMAND.md for specific operations
+4. Create initial data files
+5. Update INDEX.md
+
+### Searching the vault
+You have a vault search tool. When a user's request could relate to multiple
+projects or you're unsure which project is relevant, use the vault search
+to find semantically similar content before diving into a specific directory.
+
+### Rules
+- NEVER delete files without explicit user permission
+- Use lowercase-with-hyphens for filenames
+- Use standard Markdown, no proprietary syntax
+- Include timestamps when adding items
+- The user edits files in Obsidian too - respect their changes`
 }
 
 export function trimTurnsToFit(

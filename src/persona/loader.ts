@@ -80,6 +80,21 @@ export function validatePersona(data: Record<string, unknown>): PersonaDefinitio
     }
   }
 
+  // Validate optional vault config
+  if (data.vault != null) {
+    const vault = data.vault as Record<string, unknown>
+    if (typeof vault !== "object") {
+      errors.push("vault must be an object")
+    } else {
+      if (typeof vault.enabled !== "boolean")
+        errors.push("vault.enabled must be a boolean")
+      if (vault.path != null && typeof vault.path !== "string")
+        errors.push("vault.path must be a string")
+      if (vault.host_path != null && typeof vault.host_path !== "string")
+        errors.push("vault.host_path must be a string")
+    }
+  }
+
   // Validate optional permissions config
   const validPermValues = ["allow", "ask", "deny"]
   if (data.permissions != null) {

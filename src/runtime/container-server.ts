@@ -95,6 +95,20 @@ export async function startContainerServer(name: string, port: number): Promise<
     }, intervalMs)
   }
 
+  // Vault indexing (optional, runs in background on startup)
+  if (persona.vault?.enabled) {
+    const vaultPath = persona.vault.path ?? "/home/persona/vault"
+    import("../vault/indexer.js").then(async ({ indexVault, initVaultIndex }) => {
+      const db = engine.memoryStore.getDb()
+      try {
+        const result = await indexVault(vaultPath, db)
+        console.log(chalk.dim(`Vault indexed: ${result.indexed} files, ${result.skipped} skipped`))
+      } catch (err) {
+        console.error(chalk.yellow(`Vault indexing failed: ${(err as Error).message}`))
+      }
+    })
+  }
+
   // Graceful shutdown
   const shutdown = async () => {
     console.log(chalk.dim("\nShutting down container server..."))

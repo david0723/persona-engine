@@ -53,6 +53,12 @@ export interface SelfUpdateConfig {
   branch?: string // default: "main"
 }
 
+export interface VaultConfig {
+  enabled: boolean
+  path?: string        // container path, default: "/home/persona/vault"
+  host_path?: string   // host path for volume mount
+}
+
 export interface PermissionConfig {
   bash?: "allow" | "ask" | "deny"
   edit?: "allow" | "ask" | "deny"
@@ -76,6 +82,7 @@ export interface PersonaDefinition {
   instructions?: string
   mcp_servers?: Record<string, McpServer>
   container?: ContainerConfig
+  vault?: VaultConfig
   telegram?: TelegramConfig
   heartbeat: HeartbeatConfig
   permissions?: PermissionConfig

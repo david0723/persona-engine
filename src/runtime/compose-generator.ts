@@ -75,6 +75,9 @@ export function generateComposeFile(opts: ComposeOptions): string {
       `${personaDir}:/home/persona/.persona-engine/personas/${name}`,
       ...(selfUpdate?.enabled ? [`persona-workspace-${name}:/home/persona/workspace`] : []),
       ...(containerConfig.docker_socket ? ["/var/run/docker.sock:/var/run/docker.sock"] : []),
+      ...(persona.vault?.enabled && persona.vault.host_path ? [
+        `${persona.vault.host_path}:${persona.vault.path ?? "/home/persona/vault"}`,
+      ] : []),
     ],
     ports: [
       `0:${IPC_TCP_PORT}`,
