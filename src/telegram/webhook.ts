@@ -1,7 +1,12 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
+import { writeFileSync, mkdirSync, existsSync } from "node:fs"
+import { join } from "node:path"
 import { parseUpdate, sendMessage, sendChatAction } from "./bot.js"
 import type { ConversationEngine } from "../runtime/engine.js"
+
+const BRAIN_DUMP_KEYWORDS = /\bbrain\s*dump\b|\bdump\b/i
+const BRAIN_DUMP_MIN_LENGTH = 500
 
 function listenOn(server: Server, port: number): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -87,6 +92,27 @@ async function handleUpdate(
 
   console.log(`[telegram] ${message.from}: ${message.text}`)
 
+  // Brain dump detection: save long messages or those containing "brain dump"/"dump"
+  // to the vault Inbox/ for structured processing
+  const isBrainDump = BRAIN_DUMP_KEYWORDS.test(message.text) || message.text.length > BRAIN_DUMP_MIN_LENGTH
+  if (isBrainDump && engine.persona.vault?.enabled) {
+    const vaultPath = engine.persona.vault.path ?? "/home/persona/vault"
+    const inboxDir = join(vaultPath, "Inbox")
+    if (existsSync(inboxDir)) {
+      const date = new Date().toISOString().slice(0, 10)
+      const slug = message.text.slice(0, 40).replace(/[^a-zA-Z0-9]+/g, "-").replace(/-+$/, "").toLowerCase()
+      const filename = `${date}-telegram-${slug}.md`
+      const filepath = join(inboxDir, filename)
+      const content = `# Brain Dump (Telegram)\n\n**From:** ${message.from}\n**Date:** ${new Date().toISOString()}\n\n---\n\n${message.text}\n`
+      try {
+        writeFileSync(filepath, content, "utf-8")
+        console.log(`[telegram] Brain dump saved to ${filepath}`)
+      } catch (err) {
+        console.error(`Failed to save brain dump: ${(err as Error).message}`)
+      }
+    }
+  }
+
   // Send typing indicator and keep it alive while processing
   const typingInterval = setInterval(() => {
     sendChatAction(token, message.chatId).catch(() => {})
@@ -94,7 +120,12 @@ async function handleUpdate(
   await sendChatAction(token, message.chatId).catch(() => {})
 
   try {
-    const response = await engine.handleMessage(message.text, {
+    // If it's a brain dump, augment the message so the AI processes it as such
+    const messageText = isBrainDump && engine.persona.vault?.enabled
+      ? `[BRAIN DUMP from Telegram - already saved to Inbox/] Process this brain dump: extract tasks, ideas, and any actionable items. Then send me a summary.\n\n${message.text}`
+      : message.text
+
+    const response = await engine.handleMessage(messageText, {
       type: "telegram",
       chatId: message.chatId,
     })
