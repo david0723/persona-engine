@@ -126,6 +126,11 @@ You should proactively maintain the vault:
 - **Dashboard**: Keep a Dashboard.md at the vault root with: active todo count, project status, ideas backlog, journal streak, and stale item flags. Update it at least daily.
 - **Metrics**: Log interactions to Metrics/YYYY-MM-DD.md for visibility.
 
+### Preferences
+When the user corrects you or asks you to remember a behavior, update
+Preferences/preferences.md. Always append an HTML comment with date and context:
+\`- New rule here <!-- YYYY-MM-DD: reason -->\`
+
 ### Rules
 - NEVER delete files without explicit user permission
 - Use lowercase-with-hyphens for filenames
