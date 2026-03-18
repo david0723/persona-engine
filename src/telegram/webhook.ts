@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { parseUpdate, sendMessage, sendChatAction } from "./bot.js"
 import type { ConversationEngine } from "../runtime/engine.js"
 import { createMetricsLogger, type MetricsLogger } from "../vault/metrics.js"
+import { handleSlashCommand } from "./commands.js"
 
 const BRAIN_DUMP_KEYWORDS = /\bbrain\s*dump\b|\bdump\b/i
 const BRAIN_DUMP_MIN_LENGTH = 500
@@ -97,6 +98,16 @@ async function handleUpdate(
   }
 
   console.log(`[telegram] ${message.from}: ${message.text}`)
+
+  // Handle slash commands first (instant response, no AI needed)
+  if (message.text.startsWith("/")) {
+    const result = await handleSlashCommand(message.text, engine, metrics)
+    if (result.handled) {
+      await sendMessage(token, message.chatId, result.text)
+      metrics?.log({ source: "telegram", label: message.text.split(" ")[0], outcome: "ok" })
+      return
+    }
+  }
 
   // Brain dump detection: save long messages or those containing "brain dump"/"dump"
   // to the vault Inbox/ for structured processing
