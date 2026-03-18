@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto"
 import { buildSystemPrompt } from "./prompt-builder.js"
 import { writeOpenCodeConfig } from "./opencode-config.js"
 import { openCodeRunStreaming } from "./opencode.js"
+import { OpenCodeSessionClient, SessionManager } from "./opencode-session.js"
 import { MemoryStore } from "../memory/store.js"
 import { summarizeSession } from "../memory/summarizer.js"
 import { resolveFeatures } from "../persona/loader.js"
@@ -70,6 +71,13 @@ const TOOL_PATTERNS = [
   /^⏺ (\S+)\(/m,
 ]
 
+/** Key for session routing based on message source */
+function sourceKey(source: MessageSource): string {
+  if (source.type === "telegram") return `telegram:${source.chatId}`
+  if (source.type === "attach") return "attach"
+  return "cli"
+}
+
 export class ConversationEngine extends EventEmitter {
   private store: MemoryStore
   private sessionId: string
@@ -77,6 +85,8 @@ export class ConversationEngine extends EventEmitter {
   private queue: QueuedMessage[] = []
   private processing = false
   private _attachUrl?: string
+  private sessionClient?: OpenCodeSessionClient
+  private sessionManager?: SessionManager
 
   constructor(public readonly persona: PersonaDefinition) {
     super()
@@ -91,6 +101,15 @@ export class ConversationEngine extends EventEmitter {
 
   set attachUrl(url: string | undefined) {
     this._attachUrl = url
+    // When serve URL is set, create session client for HTTP API
+    if (url) {
+      this.sessionClient = new OpenCodeSessionClient(url)
+      this.sessionManager = new SessionManager(this.sessionClient)
+      console.log(`Session API enabled at ${url}`)
+    } else {
+      this.sessionClient = undefined
+      this.sessionManager = undefined
+    }
   }
 
   get memoryStore(): MemoryStore {
@@ -128,6 +147,11 @@ export class ConversationEngine extends EventEmitter {
       }
     }
 
+    // Clean up HTTP sessions
+    if (this.sessionManager) {
+      await this.sessionManager.cleanup()
+    }
+
     this.store.close()
   }
 
@@ -158,6 +182,66 @@ export class ConversationEngine extends EventEmitter {
     this.store.addTurn(this.sessionId, "user", taggedText, source.type)
     this.emit("message", { source, role: "user", text } satisfies ConversationEvent)
 
+    // Try HTTP Session API first (when opencode serve is running)
+    if (this.sessionClient && this.sessionManager) {
+      try {
+        const healthy = await this.sessionClient.isHealthy()
+        if (healthy) {
+          return await this.processViaSessionApi(taggedText, source)
+        }
+      } catch {
+        // Fall through to CLI mode
+        console.log("Session API unavailable, falling back to CLI")
+      }
+    }
+
+    // Fallback: CLI mode (opencode run)
+    return this.processViaCli(taggedText, source)
+  }
+
+  /**
+   * Process message via the OpenCode HTTP Session API.
+   * Maintains per-source sessions with conversation continuity.
+   */
+  private async processViaSessionApi(taggedText: string, source: MessageSource): Promise<string> {
+    const key = sourceKey(source)
+    const sessionId = await this.sessionManager!.getOrCreateSession(
+      key,
+      `persona-${this.persona.name}-${key}`,
+    )
+
+    this.emit("thinking", { source })
+
+    // For the first message in a new session, include the system prompt
+    const isNewSession = !this.sessionManager!["sessions"].get(key) ||
+      Date.now() - this.sessionManager!["sessions"].get(key)!.lastActivity < 1000
+
+    let messageText = taggedText
+    if (isNewSession) {
+      const systemPrompt = buildSystemPrompt(this.persona, this.store)
+      messageText = `${systemPrompt}\n\n---\n\nThe user says: ${taggedText}`
+    }
+
+    const result = await this.sessionClient!.sendMessage(sessionId, messageText, {
+      model: this.persona.model,
+    })
+
+    this.emit("responding", { source })
+
+    const trimmed = result.text.trim()
+    if (trimmed) {
+      this.store.addTurn(this.sessionId, "assistant", trimmed, source.type)
+      this.emit("response", { source, role: "assistant", text: trimmed } satisfies ConversationEvent)
+    }
+
+    return trimmed
+  }
+
+  /**
+   * Process message via CLI (opencode run).
+   * Original path - used when opencode serve is not available.
+   */
+  private async processViaCli(taggedText: string, source: MessageSource): Promise<string> {
     // Build the message for opencode
     let message: string
     if (this.isFirstMessage) {
